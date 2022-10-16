@@ -1,0 +1,11 @@
+$primary: #1491eb;
+
+@import '../node_modules/bulma/bulma';
+
+html, body {
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+}
