@@ -11280,35 +11280,48 @@ if (typeof importScripts == 'function') {
             : e.data.args;
         const oldCwd = Module.FS.cwd();
         Module.FS.chdir('/minizinc');
-        const code = Module.callMain(args);
-        // Add exit message so the controller can tell that we're done
-        const exitMessage = { type: 'exit', code };
-        if (Module.stdoutBuffer.length > 0) {
-            exitMessage.stdout = Module.stdoutBuffer;
-        }
-        if (Module.stderrBuffer.length > 0) {
-            exitMessage.stderr = Module.stderrBuffer;
-        }
-        if (e.data.outputFiles) {
-            exitMessage.outputFiles = {};
-            const prefix = 'file:///minizinc/';
-            for (const key of e.data.outputFiles) {
-                const resolved = new URL(prefix + key).href;
-                if (resolved.indexOf(prefix) !== 0) {
-                    // Ensure path is a valid relative path
-                    throw new Error(`Unsupported file path ${key}`);
-                }
-                const path = '/minizinc/' + resolved.substring(prefix.length);
-                if (Module.FS.analyzePath(path).exists) {
-                    exitMessage.outputFiles[key] = Module.FS.readFile(path, {
-                        encoding: 'utf8',
-                    });
-                } else {
-                    exitMessage.outputFiles[key] = null;
+        try {
+            const code = Module.callMain(args);
+            // Add exit message so the controller can tell that we're done
+            const exitMessage = { type: 'exit', code };
+            if (Module.stdoutBuffer.length > 0) {
+                exitMessage.stdout = Module.stdoutBuffer;
+            }
+            if (Module.stderrBuffer.length > 0) {
+                exitMessage.stderr = Module.stderrBuffer;
+            }
+            if (e.data.outputFiles) {
+                exitMessage.outputFiles = {};
+                const prefix = 'file:///minizinc/';
+                for (const key of e.data.outputFiles) {
+                    const resolved = new URL(prefix + key).href;
+                    if (resolved.indexOf(prefix) !== 0) {
+                        // Ensure path is a valid relative path
+                        throw new Error(`Unsupported file path ${key}`);
+                    }
+                    const path =
+                        '/minizinc/' + resolved.substring(prefix.length);
+                    if (Module.FS.analyzePath(path).exists) {
+                        exitMessage.outputFiles[key] = Module.FS.readFile(
+                            path,
+                            {
+                                encoding: 'utf8',
+                            }
+                        );
+                    } else {
+                        exitMessage.outputFiles[key] = null;
+                    }
                 }
             }
+            postMessage(exitMessage);
+        } catch (e) {
+            console.error(e);
+            postMessage({
+                type: 'exit',
+                code: -1,
+                error: e.message,
+            });
         }
-        postMessage(exitMessage);
         Module.FS.chdir(oldCwd);
         Module.FS.unmount('/minizinc');
     });
@@ -11336,6 +11349,20 @@ if (typeof importScripts == 'function') {
                 }
                 this.addFile(filename, model);
             }
+            addDznString(dzn) {
+                let filename = `_dzn_${this.unnamedCount++}.dzn`;
+                while (filename in this.vfs) {
+                    filename = `_dzn_${this.unnamedCount++}.dzn`;
+                }
+                this.addFile(filename, dzn);
+            }
+            addJson(data) {
+                let filename = `_json_${this.unnamedCount++}.json`;
+                while (filename in this.vfs) {
+                    filename = `_json_${this.unnamedCount++}.json`;
+                }
+                this.addFile(filename, JSON.stringify(data));
+            }
             addFile(filename, contents, use = true) {
                 this.vfs[filename] = contents;
                 if (
@@ -11343,7 +11370,9 @@ if (typeof importScripts == 'function') {
                     (filename.endsWith('.mzn') ||
                         filename.endsWith('.dzn') ||
                         filename.endsWith('.json') ||
-                        filename.endsWith('.mpc'))
+                        filename.endsWith('.mpc') ||
+                        filename.endsWith('.fzn')) &&
+                    this.toRun.indexOf(filename) === -1
                 ) {
                     this.toRun.push(filename);
                 }

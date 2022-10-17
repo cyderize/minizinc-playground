@@ -1,5 +1,4 @@
 <script>
-    import { faMapSigns } from '@fortawesome/free-solid-svg-icons';
     import { tick } from 'svelte';
 
     export let output;
@@ -48,9 +47,13 @@
         }
         return elapsed.trimEnd();
     }
+
+    function prependLines(prefix, s) {
+        return `${prefix}${s.split('\n').join(`\n${prefix}`)}`;
+    }
 </script>
 
-<div class="output-window">
+<div bind:this={outputElement} class="output-window">
     {#each output as run}
         <details open>
             <summary>
@@ -65,12 +68,53 @@
                 {#each run.output as msg}
                     {#if msg.type === 'solution'}
                         {#each msg.sections as section}
-                            {#if section !== 'raw'}
+                            {#if section === 'json' || section.endsWith('_json')}
+                                <pre>{JSON.stringify(
+                                        msg.output[section],
+                                        null,
+                                        2
+                                    )}</pre>
+                                <br />
+                            {:else if section !== 'raw'}
                                 <pre>{msg.output[section]}</pre>
                             {/if}
                         {/each}
                         <pre>----------</pre>
                         <br />
+                    {:else if msg.type === 'checker'}
+                        <span class="mzn-checker">
+                            <pre>% Solution checker report:</pre>
+                            <br />
+                            {#each msg.sections as section}
+                                {#if section === 'json' || section.endsWith('_json')}
+                                    <pre>{prependLines(
+                                            '% ',
+                                            JSON.stringify(
+                                                msg.output[section],
+                                                null,
+                                                2
+                                            )
+                                        )}</pre>
+                                    <br />
+                                {:else if section !== 'raw'}
+                                    <pre>{prependLines(
+                                            '% ',
+                                            msg.output[section]
+                                        )}</pre>
+                                {/if}
+                            {/each}</span
+                        >
+                        <br />
+                    {:else if msg.type === 'time'}
+                        <pre class="mzn-time">% time elapsed: {formatRuntime(
+                                msg.time
+                            )}</pre>
+                    {:else if msg.type === 'trace'}
+                        <pre class="mzn-trace">{msg.message}</pre>
+                    {:else if msg.type === 'comment'}
+                        <pre class="mzn-comment">{msg.comment}</pre>
+                    {:else if msg.type === 'stderr'}
+                        <pre class="mzn-stderr">{msg.value}</pre>
                     {:else if msg.type === 'statistics'}
                         {#each Object.keys(msg.statistics) as stat}
                             <pre><span class="mzn-stat">%%%mzn-stat:</span
@@ -81,6 +125,9 @@
                         <br />
                     {:else if msg.type === 'cancel'}
                         <pre class="mzn-runtime">Stopped.</pre>
+                        <br />
+                    {:else if msg.type === 'status'}
+                        <pre>{statusMap[msg.status]}</pre>
                         <br />
                     {:else if msg.type === 'exit'}
                         {#if msg.code}
@@ -118,6 +165,14 @@
         padding: 0;
         background: none;
         display: inline;
+        color: inherit;
+    }
+
+    .mzn-trace,
+    .mzn-comment,
+    .mzn-stderr,
+    .mzn-checker {
+        color: gray;
     }
 
     .mzn-stat,

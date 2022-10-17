@@ -12,6 +12,7 @@ import {
     delimitedIndent,
 } from '@codemirror/language';
 import { styleTags, tags as t } from '@lezer/highlight';
+import { json } from '@codemirror/lang-json';
 
 export const MiniZincLanguage = LRLanguage.define({
     parser: parser.configure({
@@ -105,7 +106,7 @@ const theme = createTheme({
     ],
 });
 
-export const MiniZincEditorExtensions = [
+const extensions = [
     basicSetup,
     keymap.of([indentWithTab]),
     theme,
@@ -114,5 +115,7 @@ export const MiniZincEditorExtensions = [
         '&.cm-editor.cm-focused': { outline: 'none' },
         '.cm-content, .cm-gutter': { minHeight: '100%' },
     }),
-    MiniZinc(),
 ];
+export const MiniZincEditorExtensions = [...extensions, MiniZinc()];
+
+export const JSONEditorExtensions = [...extensions, json()];

@@ -6,10 +6,11 @@
     import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
     import Modal from './lib/Modal.svelte';
     import { EditorState } from '@codemirror/state';
-    import { MiniZincEditorExtensions as extensions } from './lang';
-    import { tick } from 'svelte';
+    import { MiniZincEditorExtensions, JSONEditorExtensions } from './lang';
     import Output from './lib/Output.svelte';
-    import { EditorView } from 'codemirror';
+    import NewFileModal from './lib/NewFileModal.svelte';
+    import ModelModal from './lib/ModelModal.svelte';
+    import ParameterModal from './lib/ParameterModal.svelte';
 
     const playground = '% Use this editor as a MiniZinc scratch book\n';
 
@@ -18,7 +19,7 @@
         {
             name: 'Playground.mzn',
             state: EditorState.create({
-                extensions,
+                extensions: MiniZincEditorExtensions,
                 doc: playground,
                 selection: { anchor: playground.length },
             }),
@@ -29,14 +30,43 @@
     let newFileRequested = false;
     let deleteFileRequested = null;
 
-    $: state = files[currentIndex].state;
+    let needsModel = false;
+    let needsData = null;
+    let dataFileTab = true;
+
+    $: state = currentFile.state;
+    $: canRun = isModel || isData || isFzn;
+    $: canCompile = isModel || isData;
 
     let output = [];
+    let minizinc = null;
+    $: isRunning = minizinc !== null;
+
+    $: currentFile = files[currentIndex];
+    $: isModel =
+        currentFile.name.endsWith('.mzn') &&
+        !currentFile.name.endsWith('.mzc.mzn');
+    $: isData =
+        currentFile.name.endsWith('.dzn') || currentFile.name.endsWith('.json');
+    $: isFzn = currentFile.name.endsWith('.fzn');
+
+    $: modelFiles = files
+        .filter((f) => f.name.endsWith('.mzn') && !f.name.endsWith('.mzc.mzn'))
+        .map((f) => f.name);
+    $: dataFiles = files
+        .filter((f) => f.name.endsWith('.dzn') || f.name.endsWith('.json'))
+        .map((f) => f.name);
+
+    let modelModalModel = null;
+    let parameterModalDataFiles = [];
+    let parameterModalParameters = {};
+
+    const options = { solver: 'gecode_presolver' };
 
     function selectTab(index) {
         if (editor) {
             if (currentIndex < files.length) {
-                files[currentIndex].state = editor.getState();
+                currentFile.state = editor.getState();
             }
             currentIndex = index;
             editor.focus();
@@ -56,7 +86,12 @@
             ...files,
             {
                 name,
-                state: EditorState.create({ extensions }),
+                state: EditorState.create({
+                    extensions:
+                        name.endsWith('.json') || name.endsWith('.mpc')
+                            ? JSONEditorExtensions
+                            : MiniZincEditorExtensions,
+                }),
             },
         ];
         selectTab(files.length - 1);
@@ -68,7 +103,7 @@
         if (files.some((f, i) => i !== index && f === name + suffix)) {
             return;
         }
-        files[currentIndex].state = editor.getState();
+        currentFile.state = editor.getState();
         files = [
             ...files.slice(0, index),
             { ...files[index], name: name + suffix },
@@ -88,33 +123,122 @@
         deleteFileRequested = null;
     }
 
-    let minizinc = null;
-    $: isRunning = minizinc !== null;
+    let getModelResolve = null;
+    async function getModel(addChecker) {
+        currentFile.state = editor.getState();
+        let modelFile = isModel ? currentFile : null;
+        if (!modelFile) {
+            if (modelFiles.length === 0) {
+                // No models to run
+                return false;
+            } else if (modelFiles.length === 1) {
+                // Only one model, so use it
+                modelFile = files.find((f) => f.name === modelFiles[0]);
+            } else {
+                try {
+                    const result = await new Promise((resolve, _reject) => {
+                        getModelResolve = resolve;
+                        needsModel = true;
+                    });
+                    if (!result) {
+                        // Cancelled
+                        return false;
+                    }
+                    modelFile = files.find((f) => f.name === result.modelFile);
+                } finally {
+                    needsModel = false;
+                }
+            }
+        }
+        const modelFileName = modelFile.name.substring(
+            0,
+            modelFile.name.length - 4
+        );
 
-    async function run() {
         const model = new window.MiniZinc.Model();
-        const name = files[currentIndex].name;
-        model.addFile(name, editor.getState().doc.sliceString(0));
+        model.toRun.push(modelFile.name); // Ensure this is first
+
+        for (const file of files) {
+            const use =
+                file === modelFile ||
+                file === currentFile ||
+                (addChecker
+                    ? file.name === `${modelFileName}.mzc` ||
+                      file.name === `${modelFileName}.mzc.mzn`
+                    : false);
+            model.addFile(file.name, file.state.doc.sliceString(0), use);
+        }
         try {
-            const { input } = await model.interface({
-                solver: 'gecode_presolver',
-            });
+            const { input } = await model.interface(options);
             if (Object.keys(input).length > 0) {
-                // Needs data
-                return;
+                const params = {};
+                for (const key in input) {
+                    params[key] = parameterModalParameters[key];
+                }
+                parameterModalParameters = params;
+                if (
+                    isData &&
+                    parameterModalDataFiles.indexOf(currentFile.name) === -1
+                ) {
+                    // Ensure the currently running file is selected
+                    parameterModalDataFiles = [
+                        ...parameterModalDataFiles,
+                        currentFile.name,
+                    ];
+                }
+                try {
+                    const result = await new Promise((resolve, _reject) => {
+                        getModelResolve = resolve;
+                        needsData = true;
+                    });
+                    if (!result) {
+                        // Cancelled
+                        return false;
+                    }
+                    if (result.parameters) {
+                        let dzn = '';
+                        for (const key in result.parameters) {
+                            if (result.parameters[key].trim().length > 0) {
+                                dzn += `${key} = ${result.parameters[key]};\n`;
+                            }
+                        }
+                        model.addDznString(dzn);
+                        dataFileTab = false;
+                        parameterModalParameters = result.parameters;
+                    } else {
+                        for (const file of result.dataFiles) {
+                            if (model.toRun.indexOf(file) === -1) {
+                                model.toRun.push(file);
+                            }
+                        }
+                        dataFileTab = true;
+                        parameterModalDataFiles = result.dataFiles;
+                    }
+                } finally {
+                    needsData = false;
+                }
             }
         } catch (e) {
-            // Ignore
+            // Ignore and just run
+            console.error(e);
+        }
+        return model;
+    }
+
+    async function run() {
+        const model = await getModel(true);
+        if (!model) {
+            return;
         }
         const startTime = Date.now();
         output = [
             ...output,
             {
-                files: [name],
+                files: [...model.toRun],
                 output: [],
             },
         ];
-        minizinc = model.solve({ solver: 'gecode_presolver' }, false);
+        minizinc = model.solve(options, false);
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('solution', addOutput);
@@ -125,6 +249,7 @@
         minizinc.on('comment', addOutput);
         minizinc.on('time', addOutput);
         minizinc.on('checker', addOutput);
+        minizinc.on('stderr', addOutput);
         try {
             await minizinc;
             addOutput({
@@ -143,36 +268,27 @@
     }
 
     async function compile() {
-        const model = new window.MiniZinc.Model();
-        const name = files[currentIndex].name;
-        model.addFile(name, editor.getState().doc.sliceString(0));
-        try {
-            const { input } = await model.interface({
-                solver: 'gecode_presolver',
-            });
-            if (Object.keys(input).length > 0) {
-                // Needs data
-                return;
-            }
-        } catch (e) {
-            // Ignore
+        const model = await getModel(false);
+        if (!model) {
+            return;
         }
-        isRunning = true;
+        const name = model.toRun.find((f) => f.endsWith('.mzn'));
         const startTime = Date.now();
         output = [
             ...output,
             {
-                files: [name],
+                files: [...model.toRun],
                 isCompile: true,
                 output: [],
             },
         ];
-        minizinc = model.compile({ solver: 'gecode_presolver' });
+        minizinc = model.compile(options);
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('statistics', addOutput);
         minizinc.on('trace', addOutput);
         minizinc.on('statistics', addOutput);
+        minizinc.on('stderr', addOutput);
         try {
             const fzn = await minizinc;
             files = [
@@ -180,7 +296,7 @@
                 {
                     name: `${name.substring(0, name.indexOf('.'))}.fzn`,
                     state: EditorState.create({
-                        extensions,
+                        extensions: MiniZincEditorExtensions,
                         doc: fzn,
                     }),
                 },
@@ -235,20 +351,22 @@
                                     class="button is-primary"
                                     title="Run the current file"
                                     on:click={run}
+                                    disabled={!canRun}
                                 >
                                     <span>Run</span>
                                     <span class="icon">
                                         <Fa icon={faPlay} />
                                     </span>
                                 </button>
-                                <button
-                                    class="button"
-                                    title="Compile the current file and show the resultant FlatZinc"
-                                    on:click={compile}
-                                >
-                                    <span>Compile</span>
-                                </button>
                             {/if}
+                            <button
+                                class="button"
+                                title="Compile the current file and show the resultant FlatZinc"
+                                on:click={compile}
+                                disabled={isRunning || !canCompile}
+                            >
+                                <span>Compile</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -289,55 +407,14 @@
 </div>
 
 {#if newFileRequested}
-    <Modal
-        title="Create new file"
-        isActive={newFileRequested}
+    <NewFileModal
         on:cancel={() => (newFileRequested = false)}
-    >
-        <aside class="menu">
-            <ul class="menu-list">
-                <li>
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-missing-attribute -->
-                    <a on:click={() => newFile('.mzn')}>Model file (.mzn)</a>
-                </li>
-                <li>
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-missing-attribute -->
-                    <a on:click={() => newFile('.dzn')}>Data file (.dzn)</a>
-                </li>
-                <li>
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-missing-attribute -->
-                    <a on:click={() => newFile('.json')}
-                        >JSON data file (.json)</a
-                    >
-                </li>
-                <li>
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-missing-attribute -->
-                    <a on:click={() => newFile('.mzc.mzn')}
-                        >Solution checker model (.mzc.mzn)</a
-                    >
-                </li>
-                <li>
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-missing-attribute -->
-                    <a on:click={() => newFile('.mpc')}
-                        >Parameter configuration file (.mpc)</a
-                    >
-                </li>
-            </ul>
-        </aside>
-    </Modal>
+        on:new={(e) => newFile(e.detail.type)}
+    />
 {/if}
 
 {#if deleteFileRequested !== null}
-    <Modal
-        title="Delete file"
-        isActive={deleteFileRequested !== null}
-        on:cancel={() => (deleteFileRequested = null)}
-    >
+    <Modal title="Delete file" on:cancel={() => (deleteFileRequested = null)}>
         <p>
             Are you sure you wish to delete <code
                 >{files[deleteFileRequested].name}</code
@@ -356,6 +433,26 @@
             >
         </div>
     </Modal>
+{/if}
+
+{#if needsModel}
+    <ModelModal
+        {modelFiles}
+        selectedModelFile={modelModalModel}
+        on:accept={(e) => getModelResolve(e.detail)}
+        on:cancel={() => getModelResolve(false)}
+    />
+{/if}
+
+{#if needsData}
+    <ParameterModal
+        {dataFiles}
+        selectedDataFiles={parameterModalDataFiles}
+        dataTab={dataFileTab}
+        parameters={parameterModalParameters}
+        on:accept={(e) => getModelResolve(e.detail)}
+        on:cancel={() => getModelResolve(false)}
+    />
 {/if}
 
 <style>

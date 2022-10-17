@@ -2,7 +2,6 @@
     import { createEventDispatcher } from 'svelte';
 
     export let title;
-    export let isActive = false;
     const dispatch = createEventDispatcher();
 
     function cancel() {
@@ -10,7 +9,7 @@
     }
 </script>
 
-<div class="modal" class:is-active={isActive}>
+<div class="modal is-active">
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <div class="modal-background" on:click={cancel} />
     <div class="modal-card">
