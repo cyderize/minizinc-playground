@@ -3,10 +3,13 @@
     import SplitPanel from './lib/SplitPanel.svelte';
     import Tabs from './lib/Tabs.svelte';
     import Fa from 'svelte-fa/src/fa.svelte';
-    import { faPlay } from '@fortawesome/free-solid-svg-icons';
+    import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
     import Modal from './lib/Modal.svelte';
     import { EditorState } from '@codemirror/state';
     import { MiniZincEditorExtensions as extensions } from './lang';
+    import { tick } from 'svelte';
+    import Output from './lib/Output.svelte';
+    import { EditorView } from 'codemirror';
 
     const playground = '% Use this editor as a MiniZinc scratch book\n';
 
@@ -27,6 +30,8 @@
     let deleteFileRequested = null;
 
     $: state = files[currentIndex].state;
+
+    let output = [];
 
     function selectTab(index) {
         if (editor) {
@@ -63,6 +68,7 @@
         if (files.some((f, i) => i !== index && f === name + suffix)) {
             return;
         }
+        files[currentIndex].state = editor.getState();
         files = [
             ...files.slice(0, index),
             { ...files[index], name: name + suffix },
@@ -81,6 +87,129 @@
         }
         deleteFileRequested = null;
     }
+
+    let minizinc = null;
+    $: isRunning = minizinc !== null;
+
+    async function run() {
+        const model = new window.MiniZinc.Model();
+        const name = files[currentIndex].name;
+        model.addFile(name, editor.getState().doc.sliceString(0));
+        try {
+            const { input } = await model.interface({
+                solver: 'gecode_presolver',
+            });
+            if (Object.keys(input).length > 0) {
+                // Needs data
+                return;
+            }
+        } catch (e) {
+            // Ignore
+        }
+        const startTime = Date.now();
+        output = [
+            ...output,
+            {
+                files: [name],
+                output: [],
+            },
+        ];
+        minizinc = model.solve({ solver: 'gecode_presolver' }, false);
+        minizinc.on('error', addOutput);
+        minizinc.on('warning', addOutput);
+        minizinc.on('solution', addOutput);
+        minizinc.on('status', addOutput);
+        minizinc.on('statistics', addOutput);
+        minizinc.on('trace', addOutput);
+        minizinc.on('statistics', addOutput);
+        minizinc.on('comment', addOutput);
+        minizinc.on('time', addOutput);
+        minizinc.on('checker', addOutput);
+        try {
+            await minizinc;
+            addOutput({
+                type: 'exit',
+                code: 0,
+                runTime: Date.now() - startTime,
+            });
+        } catch (e) {
+            addOutput({
+                type: 'exit',
+                code: e.code,
+                runTime: Date.now() - startTime,
+            });
+        }
+        minizinc = null;
+    }
+
+    async function compile() {
+        const model = new window.MiniZinc.Model();
+        const name = files[currentIndex].name;
+        model.addFile(name, editor.getState().doc.sliceString(0));
+        try {
+            const { input } = await model.interface({
+                solver: 'gecode_presolver',
+            });
+            if (Object.keys(input).length > 0) {
+                // Needs data
+                return;
+            }
+        } catch (e) {
+            // Ignore
+        }
+        isRunning = true;
+        const startTime = Date.now();
+        output = [
+            ...output,
+            {
+                files: [name],
+                isCompile: true,
+                output: [],
+            },
+        ];
+        minizinc = model.compile({ solver: 'gecode_presolver' });
+        minizinc.on('error', addOutput);
+        minizinc.on('warning', addOutput);
+        minizinc.on('statistics', addOutput);
+        minizinc.on('trace', addOutput);
+        minizinc.on('statistics', addOutput);
+        try {
+            const fzn = await minizinc;
+            files = [
+                ...files,
+                {
+                    name: `${name.substring(0, name.indexOf('.'))}.fzn`,
+                    state: EditorState.create({
+                        extensions,
+                        doc: fzn,
+                    }),
+                },
+            ];
+            selectTab(files.length - 1);
+            addOutput({
+                type: 'exit',
+                code: 0,
+                runTime: Date.now() - startTime,
+            });
+        } catch (e) {
+            addOutput({
+                type: 'exit',
+                code: e.code,
+                runTime: Date.now() - startTime,
+            });
+        }
+        minizinc = null;
+    }
+
+    function stop() {
+        addOutput({ type: 'cancel' });
+        minizinc.cancel();
+    }
+
+    async function addOutput(value) {
+        output[output.length - 1].output.push(value);
+        output = output; // Force update
+    }
 </script>
 
 <div class="stack">
@@ -90,21 +219,36 @@
                 <div class="navbar-start">
                     <div class="navbar-item">
                         <div class="buttons">
-                            <button
-                                class="button is-primary"
-                                title="Run the current file"
-                            >
-                                <span>Run</span>
-                                <span class="icon">
-                                    <Fa icon={faPlay} />
-                                </span>
-                            </button>
-                            <button
-                                class="button"
-                                title="Compile the current file and show the resultant FlatZinc"
-                            >
-                                <span>Compile</span>
-                            </button>
+                            {#if isRunning}
+                                <button
+                                    class="button is-danger"
+                                    title="Cancel solving"
+                                    on:click={stop}
+                                >
+                                    <span>Stop</span>
+                                    <span class="icon">
+                                        <Fa icon={faStop} />
+                                    </span>
+                                </button>
+                            {:else}
+                                <button
+                                    class="button is-primary"
+                                    title="Run the current file"
+                                    on:click={run}
+                                >
+                                    <span>Run</span>
+                                    <span class="icon">
+                                        <Fa icon={faPlay} />
+                                    </span>
+                                </button>
+                                <button
+                                    class="button"
+                                    title="Compile the current file and show the resultant FlatZinc"
+                                    on:click={compile}
+                                >
+                                    <span>Compile</span>
+                                </button>
+                            {/if}
                         </div>
                     </div>
                 </div>
@@ -137,7 +281,9 @@
                     <Editor {state} bind:this={editor} />
                 </div>
             </div>
-            <div class="panel" slot="panelB" />
+            <div class="panel" slot="panelB">
+                <Output {output} />
+            </div>
         </SplitPanel>
     </div>
 </div>
@@ -193,7 +339,9 @@
         on:cancel={() => (deleteFileRequested = null)}
     >
         <p>
-            Are you sure you wish to delete <code>{files[deleteFileRequested].name}</code>?
+            Are you sure you wish to delete <code
+                >{files[deleteFileRequested].name}</code
+            >?
         </p>
         <p>This cannot be undone.</p>
         <div slot="footer">

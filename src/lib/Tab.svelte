@@ -44,7 +44,12 @@
 <li class:is-active={active}>
     <!-- svelte-ignore a11y-missing-attribute -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <a class="filename-link" on:click={() => {if (!isEditing) dispatch('click')}}>
+    <a
+        class="filename-link"
+        on:click={() => {
+            if (!isEditing) dispatch('click');
+        }}
+    >
         {#if isEditing}
             <input
                 size={editValue.length || name.length}
