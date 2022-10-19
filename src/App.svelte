@@ -583,6 +583,9 @@
 
     let prevText = null;
     async function checkCode(view) {
+        if (!currentFile || !currentFile.name.endsWith('.mzn')) {
+            return;
+        }
         try {
             const text = view.state.doc.toString();
             if (text === prevText) {
