@@ -25,8 +25,6 @@
     import ParameterModal from './lib/ParameterModal.svelte';
     import SolverConfig from './lib/SolverConfig.svelte';
     import { addErrors, lineCharToPos } from './lang/underline';
-    import JSZip from 'jszip';
-    import FileSaver from 'file-saver';
     import { onMount } from 'svelte';
 
     let settings = { autoClearOutput: false };
@@ -473,6 +471,8 @@
     async function downloadProject() {
         generatingProject = true;
         try {
+            const JSZip = (await import('jszip')).default;
+            const FileSaver = (await import('file-saver')).default;
             const project = projectAsJson();
             const names = files.map((f) => f.name);
             const solverId = {
