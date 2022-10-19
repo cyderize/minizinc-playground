@@ -1,8 +1,61 @@
 <script>
-    import { tick } from 'svelte';
+    import { createEventDispatcher, tick } from 'svelte';
+    import Fa from 'svelte-fa/src/fa.svelte';
+    import { faEraser, faTrash } from '@fortawesome/free-solid-svg-icons';
+    const dispatch = createEventDispatcher();
 
     export let output;
+    export let autoClearOutput = false;
     let outputElement;
+    let showStatistics = true;
+    let showStderr = true;
+    let showTiming = true;
+
+    $: hasStatistics = output.some((run) =>
+        run.output.some((m) => m.type === 'statistics')
+    );
+    $: hasStderr = output.some((run) =>
+        run.output.some((m) => m.type === 'stderr')
+    );
+    $: hasTiming = output.some((run) =>
+        run.output.some((m) => m.type === 'time')
+    );
+
+    function getUserSections(output) {
+        const messages = output.flatMap((run) => run.output);
+        const sections = new Set([
+            ...messages
+                .filter((m) => m.type === 'solution' || m.type === 'checker')
+                .flatMap((m) =>
+                    m.sections.filter((s) => m.output[s].length > 0)
+                ),
+            ...messages.filter((m) => m.type === 'trace').map((m) => m.section),
+        ]);
+        sections.delete('raw'); // Exclude raw section
+        const result = [...sections.values()];
+        result.sort();
+        hiddenSections = hiddenSections.filter((s) => sections.has(s));
+        return result;
+    }
+
+    function toggleSection(section) {
+        if (hiddenSections.indexOf(section) === -1) {
+            hiddenSections = [...hiddenSections, section];
+        } else {
+            hiddenSections = hiddenSections.filter((s) => s !== section);
+        }
+    }
+
+    function toggleAllSections() {
+        if (hiddenSections.length === 0) {
+            hiddenSections = [...userSections];
+        } else {
+            hiddenSections = [];
+        }
+    }
+
+    $: userSections = getUserSections(output);
+    let hiddenSections = [];
 
     $: update(output);
 
@@ -53,99 +106,241 @@
     }
 </script>
 
-<div bind:this={outputElement} class="output-window">
-    {#each output as run}
-        <details open>
-            <summary>
-                {#if run.isCompile}
-                    Compiling
-                {:else}
-                    Running
-                {/if}
-                {run.files.join(', ')}
-            </summary>
-            <div class="messages">
-                {#each run.output as msg}
-                    {#if msg.type === 'solution'}
-                        {#each msg.sections as section}
-                            {#if section === 'json' || section.endsWith('_json')}
-                                <pre>{JSON.stringify(
-                                        msg.output[section],
-                                        null,
-                                        2
-                                    )}</pre>
+<div class="stack">
+    <div class="top">
+        <button
+            class="button is-small section-toggle"
+            on:click={() => toggleAllSections()}
+            disabled={userSections.length === 0}
+        >
+            {#if hiddenSections.length === 0}
+                Hide all
+            {:else}
+                Show all
+            {/if}
+        </button>
+        {#each userSections as section}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={hiddenSections.indexOf(section) === -1}
+                class:is-light={hiddenSections.indexOf(section) !== -1}
+                title={`Click to ${
+                    hiddenSections.indexOf(section) === -1 ? 'hide' : 'show'
+                } ${section} output`}
+                on:click={() => toggleSection(section)}
+            >
+                {section}
+            </button>
+        {/each}
+        <div class="spacer" />
+        {#if hasStatistics}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={showStatistics}
+                class:is-light={!showStatistics}
+                title={`Click to ${
+                    showStatistics ? 'hide' : 'show'
+                } statistics information`}
+                on:click={() => (showStatistics = !showStatistics)}
+            >
+                Statistics
+            </button>
+        {/if}
+        {#if hasStderr}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={showStderr}
+                class:is-light={!showStderr}
+                title={`Click to ${
+                    showStderr ? 'hide' : 'show'
+                } standard error output`}
+                on:click={() => (showStderr = !showStderr)}
+            >
+                Standard error
+            </button>
+        {/if}
+        {#if hasTiming}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={showTiming}
+                class:is-light={!showTiming}
+                title={`Click to ${
+                    showTiming ? 'hide' : 'show'
+                } timing information`}
+                on:click={() => (showTiming = !showTiming)}
+            >
+                Timing
+            </button>
+        {/if}
+        <div class="field has-addons">
+            <p class="control">
+                <button
+                    class="button is-small"
+                    class:is-primary={autoClearOutput}
+                    class:is-light={!autoClearOutput}
+                    title="Clear output on each run"
+                    on:click={() => (autoClearOutput = !autoClearOutput)}
+                >
+                    <span class="icon"><Fa icon={faEraser} /></span>
+                </button>
+            </p>
+
+            <p class="control">
+                <button
+                    class="button is-small is-danger"
+                    title="Clear output"
+                    on:click={() => dispatch('clear')}
+                >
+                    <span class="icon"><Fa icon={faTrash} /></span>
+                </button>
+            </p>
+        </div>
+    </div>
+    <div class="grow">
+        <div bind:this={outputElement} class="output-window">
+            {#each output as run}
+                <details open>
+                    <summary>
+                        {#if run.isCompile}
+                            Compiling
+                        {:else}
+                            Running
+                        {/if}
+                        {run.files.join(', ')}
+                    </summary>
+                    <div class="messages">
+                        {#each run.output as msg}
+                            {#if msg.type === 'solution'}
+                                {#each msg.sections as section}
+                                    {#if hiddenSections.indexOf(section) === -1}
+                                        {#if section === 'json' || section.endsWith('_json')}
+                                            <pre>{JSON.stringify(
+                                                    msg.output[section],
+                                                    null,
+                                                    2
+                                                )}</pre>
+                                            <br />
+                                        {:else if section !== 'raw'}
+                                            <pre>{msg.output[section]}</pre>
+                                        {/if}
+                                    {/if}
+                                {/each}
+                                <pre>----------</pre>
                                 <br />
-                            {:else if section !== 'raw'}
-                                <pre>{msg.output[section]}</pre>
-                            {/if}
-                        {/each}
-                        <pre>----------</pre>
-                        <br />
-                    {:else if msg.type === 'checker'}
-                        <span class="mzn-checker">
-                            <pre>% Solution checker report:</pre>
-                            <br />
-                            {#each msg.sections as section}
-                                {#if section === 'json' || section.endsWith('_json')}
-                                    <pre>{prependLines(
-                                            '% ',
-                                            JSON.stringify(
-                                                msg.output[section],
-                                                null,
-                                                2
-                                            )
+                            {:else if msg.type === 'checker'}
+                                <span class="mzn-checker">
+                                    <pre>% Solution checker report:</pre>
+                                    <br />
+                                    {#each msg.sections as section}
+                                        {#if hiddenSections.indexOf(section) === -1}
+                                            {#if section === 'json' || section.endsWith('_json')}
+                                                <pre>{prependLines(
+                                                        '% ',
+                                                        JSON.stringify(
+                                                            msg.output[section],
+                                                            null,
+                                                            2
+                                                        )
+                                                    )}</pre>
+                                                <br />
+                                            {:else if section !== 'raw'}
+                                                <pre>{prependLines(
+                                                        '% ',
+                                                        msg.output[section]
+                                                    )}</pre>
+                                            {/if}
+                                        {/if}
+                                    {/each}</span
+                                >
+                                <br />
+                            {:else if msg.type === 'time'}
+                                {#if showTiming}
+                                    <pre
+                                        class="mzn-time">% time elapsed: {formatRuntime(
+                                            msg.time
                                         )}</pre>
                                     <br />
-                                {:else if section !== 'raw'}
-                                    <pre>{prependLines(
-                                            '% ',
-                                            msg.output[section]
-                                        )}</pre>
                                 {/if}
-                            {/each}</span
-                        >
-                        <br />
-                    {:else if msg.type === 'time'}
-                        <pre class="mzn-time">% time elapsed: {formatRuntime(
-                                msg.time
-                            )}</pre>
-                    {:else if msg.type === 'trace'}
-                        <pre class="mzn-trace">{msg.message}</pre>
-                    {:else if msg.type === 'comment'}
-                        <pre class="mzn-comment">{msg.comment}</pre>
-                    {:else if msg.type === 'stderr'}
-                        <pre class="mzn-stderr">{msg.value}</pre>
-                    {:else if msg.type === 'statistics'}
-                        {#each Object.keys(msg.statistics) as stat}
-                            <pre><span class="mzn-stat">%%%mzn-stat:</span
-                                > {stat}={msg.statistics[stat]}</pre>
-                            <br />
+                            {:else if msg.type === 'trace'}
+                                {#if hiddenSections.indexOf(msg.section) === -1}
+                                    <pre class="mzn-trace">{msg.message}</pre>
+                                {/if}
+                            {:else if msg.type === 'comment'}
+                                <pre class="mzn-comment">{msg.comment}</pre>
+                            {:else if msg.type === 'stderr'}
+                                {#if showStderr}
+                                    <pre class="mzn-stderr">{msg.value}</pre>
+                                {/if}
+                            {:else if msg.type === 'statistics'}
+                                {#if showStatistics}
+                                    {#each Object.keys(msg.statistics) as stat}
+                                        <pre><span class="mzn-stat"
+                                                >%%%mzn-stat:</span
+                                            > {stat}={msg.statistics[
+                                                stat
+                                            ]}</pre>
+                                        <br />
+                                    {/each}
+                                    <pre><span class="mzn-stat"
+                                            >%%%mzn-stat-end</span
+                                        ></pre>
+                                    <br />
+                                {/if}
+                            {:else if msg.type === 'cancel'}
+                                <pre class="mzn-runtime">Stopped.</pre>
+                                <br />
+                            {:else if msg.type === 'status'}
+                                <pre>{statusMap[msg.status]}</pre>
+                                <br />
+                            {:else if msg.type === 'exit'}
+                                {#if msg.code}
+                                    <pre
+                                        class="mzn-error">Process finished with non-zero exit code {msg.code}.</pre>
+                                    <br />
+                                {/if}
+                                <pre
+                                    class="mzn-runtime">Finished in {formatRuntime(
+                                        msg.runTime
+                                    )}.</pre>
+                            {/if}
                         {/each}
-                        <pre><span class="mzn-stat">%%%mzn-stat-end</span></pre>
-                        <br />
-                    {:else if msg.type === 'cancel'}
-                        <pre class="mzn-runtime">Stopped.</pre>
-                        <br />
-                    {:else if msg.type === 'status'}
-                        <pre>{statusMap[msg.status]}</pre>
-                        <br />
-                    {:else if msg.type === 'exit'}
-                        {#if msg.code}
-                            <pre
-                                class="mzn-error">Process finished with non-zero exit code {msg.code}.</pre>
-                            <br />
-                        {/if}
-                        <pre class="mzn-runtime">Finished in {formatRuntime(
-                                msg.runTime
-                            )}.</pre>
-                    {/if}
-                {/each}
-            </div>
-        </details>
-    {/each}
+                    </div>
+                </details>
+            {/each}
+        </div>
+    </div>
 </div>
 
 <style>
+    .stack {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    .stack > .grow {
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    .stack > .top {
+        flex: 0 0 auto;
+        display: flex;
+        padding: 0.5rem;
+        border-bottom: solid 1px hsl(0deg, 0%, 86%);
+    }
+
+    .top > .field {
+        margin-bottom: 0;
+    }
+
+    .spacer {
+        flex: 1 1 auto;
+    }
+
+    .section-toggle {
+        margin-right: 0.5rem;
+    }
+
     .output-window {
         height: 100%;
         overflow: auto;
@@ -166,6 +361,7 @@
         background: none;
         display: inline;
         color: inherit;
+        white-space: pre-wrap;
     }
 
     .mzn-trace,

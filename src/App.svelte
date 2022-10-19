@@ -34,6 +34,8 @@
     ];
     let currentIndex = 0;
 
+    let autoClearOutput = false;
+
     let newFileRequested = false;
     let deleteFileRequested = null;
 
@@ -69,7 +71,7 @@
     let parameterModalParameters = {};
 
     const options = { solver: 'gecode_presolver' };
-    
+
     let showSolverConfig = false;
     function toggleSolverConfig() {
         showSolverConfig = !showSolverConfig;
@@ -307,6 +309,9 @@
         }
         const { model, fileList } = mznModel;
         const startTime = Date.now();
+        if (autoClearOutput) {
+            output = [];
+        }
         output = [
             ...output,
             {
@@ -352,6 +357,9 @@
         const { model, fileList } = mznModel;
         const name = fileList[0];
         const startTime = Date.now();
+        if (autoClearOutput) {
+            output = [];
+        }
         output = [
             ...output,
             {
@@ -470,7 +478,10 @@
                             </div>
 
                             <div class="control">
-                                <button class="button is-primary" on:click={toggleSolverConfig}>
+                                <button
+                                    class="button is-primary"
+                                    on:click={toggleSolverConfig}
+                                >
                                     <span class="icon">
                                         <Fa icon={faCog} />
                                     </span>
@@ -525,7 +536,11 @@
                     </div>
                 </div>
                 <div class="panel" slot="panelB">
-                    <Output {output} />
+                    <Output
+                        {output}
+                        on:clear={() => (output = [])}
+                        bind:autoClearOutput
+                    />
                 </div>
             </SplitPanel>
         </div>
