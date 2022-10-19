@@ -27,6 +27,7 @@
     import { addErrors, lineCharToPos } from './lang/underline';
     import JSZip from 'jszip';
     import FileSaver from 'file-saver';
+    import { onMount } from 'svelte';
 
     let settings = { autoClearOutput: false };
     try {
@@ -96,37 +97,6 @@
     let showSolverConfig = false;
     function toggleSolverConfig() {
         showSolverConfig = !showSolverConfig;
-    }
-
-    if (window.location.hash.startsWith('#project=')) {
-        try {
-            const json = decodeURIComponent(window.location.hash.substring(9));
-            const result = JSON.parse(json);
-            openFiles(result.files);
-            currentIndex = result.tab;
-            currentSolverIndex = result.solver;
-        } catch (e) {
-            console.error(e);
-        }
-    } else if (settings.lastProject) {
-        try {
-            openFiles(settings.lastProject.files);
-            currentIndex = settings.lastProject.tab;
-            currentSolverIndex = settings.lastProject.solver;
-        } catch (e) {
-            console.error(e);
-        }
-    } else {
-        files = [
-            {
-                name: 'Playground.mzn',
-                state: EditorState.create({
-                    extensions: mznExtensions,
-                    doc: playground,
-                    selection: { anchor: playground.length },
-                }),
-            },
-        ];
     }
 
     function selectTab(index) {
@@ -533,6 +503,47 @@
         }
     }
 
+    function hashChange() {
+        if (window.location.hash.startsWith('#project=')) {
+            try {
+                const json = decodeURIComponent(
+                    window.location.hash.substring(9)
+                );
+                const result = JSON.parse(json);
+                files = [];
+                openFiles(result.files);
+                currentIndex = result.tab;
+                currentSolverIndex = result.solver;
+                window.location.hash = '';
+            } catch (e) {
+                console.error(e);
+            }
+        } else if (files.length === 0) {
+            if (settings.lastProject) {
+                try {
+                    openFiles(settings.lastProject.files);
+                    currentIndex = settings.lastProject.tab;
+                    currentSolverIndex = settings.lastProject.solver;
+                } catch (e) {
+                    console.error(e);
+                }
+            } else {
+                files = [
+                    {
+                        name: 'Playground.mzn',
+                        state: EditorState.create({
+                            extensions: mznExtensions,
+                            doc: playground,
+                            selection: { anchor: playground.length },
+                        }),
+                    },
+                ];
+            }
+        }
+    }
+
+    onMount(() => hashChange());
+
     function beforeUnload() {
         if (currentFile) {
             currentFile.state = editor.getState();
@@ -610,7 +621,7 @@
     }
 </script>
 
-<svelte:window on:beforeunload={beforeUnload} />
+<svelte:window on:beforeunload={beforeUnload} on:hashchange={hashChange} />
 
 <div class="stack">
     <div class="top">
