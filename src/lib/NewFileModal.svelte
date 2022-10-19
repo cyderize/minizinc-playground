@@ -60,16 +60,6 @@
                 >
             </li>
         </ul>
-        <p class="menu-label">Configuration</p>
-        <ul class="menu-list">
-            <li>
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <!-- svelte-ignore a11y-missing-attribute -->
-                <a on:click={() => dispatch('new', { type: '.mpc' })}
-                    >Parameter configuration file (.mpc)</a
-                >
-            </li>
-        </ul>
         <p class="menu-label">Import</p>
         <ul class="menu-list">
             <li>
@@ -88,5 +78,5 @@
     bind:files
     on:change={uploaded}
     multiple
-    accept=".mzn,.mzc,.dzn,.json,.mpc"
+    accept=".mzn,.mzc,.dzn,.json"
 />
