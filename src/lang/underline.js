@@ -55,7 +55,7 @@ const underlineTheme = EditorView.baseTheme({
  * @param {string} text
  * @returns {number}
  */
-function lineCharToPos(line, char, text) {
+export function lineCharToPos(line, char, text) {
     let i;
     let r = 1;
     let c = 1;

@@ -24,7 +24,7 @@
     import ModelModal from './lib/ModelModal.svelte';
     import ParameterModal from './lib/ParameterModal.svelte';
     import SolverConfig from './lib/SolverConfig.svelte';
-    import { addErrors } from './lang/underline';
+    import { addErrors, lineCharToPos } from './lang/underline';
 
     let settings = { autoClearOutput: false };
     try {
@@ -452,7 +452,7 @@
                 {
                     name: `${name.substring(0, name.indexOf('.'))}.fzn`,
                     state: EditorState.create({
-                        extensions: MiniZincEditorExtensions,
+                        extensions: mznExtensions,
                         doc: fzn,
                     }),
                 },
@@ -559,6 +559,17 @@
             );
         } catch (e) {
             console.error(e);
+        }
+    }
+
+    function gotoLocation(loc) {
+        const i = files.findIndex(f => f.name === loc.filename);
+        if (i !== -1) {
+            selectTab(i);
+            const text = files[i].state.doc.toString();
+            const pos = lineCharToPos(loc.firstLine, loc.firstColumn, text);
+            editor.focus();
+            editor.setCursor(pos);
         }
     }
 </script>
@@ -697,6 +708,7 @@
                     <Output
                         {output}
                         on:clear={() => (output = [])}
+                        on:goto={(e) => gotoLocation(e.detail.location)}
                         bind:autoClearOutput
                     />
                 </div>

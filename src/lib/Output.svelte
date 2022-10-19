@@ -1,7 +1,10 @@
 <script>
     import { createEventDispatcher, tick } from 'svelte';
     import Fa from 'svelte-fa/src/fa.svelte';
-    import { faEraser, faTrash } from '@fortawesome/free-solid-svg-icons';
+    import {
+        faEraser,
+        faTrash,
+    } from '@fortawesome/free-solid-svg-icons';
     const dispatch = createEventDispatcher();
 
     export let output;
@@ -10,6 +13,8 @@
     let showStatistics = true;
     let showStderr = true;
     let showTiming = true;
+    let showWarnings = true;
+    let showErrors = true;
 
     $: hasStatistics = output.some((run) =>
         run.output.some((m) => m.type === 'statistics')
@@ -19,6 +24,12 @@
     );
     $: hasTiming = output.some((run) =>
         run.output.some((m) => m.type === 'time')
+    );
+    $: hasWarnings = output.some((run) =>
+        run.output.some((m) => m.type === 'warning')
+    );
+    $: hasErrors = output.some((run) =>
+        run.output.some((m) => m.type === 'error')
     );
 
     function getUserSections(output) {
@@ -104,6 +115,16 @@
     function prependLines(prefix, s) {
         return `${prefix}${s.split('\n').join(`\n${prefix}`)}`;
     }
+
+    function displayLocation(loc) {
+        if (loc.firstLine == loc.lastLine) {
+            if (loc.firstColumn == loc.lastColumn) {
+                return `${loc.filename}:${loc.firstLine}.${loc.firstColumn}`;
+            }
+            return `${loc.filename}:${loc.firstLine}.${loc.firstColumn}-${loc.lastColumn}`;
+        }
+        return `${loc.filename}:${loc.firstLine}.${loc.firstColumn}-${loc.lastLine}.${loc.lastColumn}`;
+    }
 </script>
 
 <div class="stack">
@@ -170,6 +191,28 @@
                 on:click={() => (showTiming = !showTiming)}
             >
                 Timing
+            </button>
+        {/if}
+        {#if hasWarnings}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={showWarnings}
+                class:is-light={!showWarnings}
+                title={`Click to ${showTiming ? 'hide' : 'show'} warnings`}
+                on:click={() => (showWarnings = !showWarnings)}
+            >
+                Warnings
+            </button>
+        {/if}
+        {#if hasErrors}
+            <button
+                class="button is-small section-toggle"
+                class:is-primary={showErrors}
+                class:is-light={!showErrors}
+                title={`Click to ${showTiming ? 'hide' : 'show'} errors`}
+                on:click={() => (showErrors = !showErrors)}
+            >
+                Errors
             </button>
         {/if}
         <div class="field has-addons">
@@ -292,6 +335,69 @@
                             {:else if msg.type === 'status'}
                                 <pre>{statusMap[msg.status]}</pre>
                                 <br />
+                            {:else if msg.type === 'error' || msg.type === 'warning'}
+                                {#if (msg.type === 'error' && showErrors) || (msg.type === 'warning' && showWarnings)}
+                                    {#if msg.stack}
+                                        {#each msg.stack as entry, i}
+                                            {#if i === 0 || entry.location.filename !== msg.stack[i - 1].location.filename || entry.location.firstLine !== msg.stack[i - 1].location.firstLine}
+                                                <!-- svelte-ignore a11y-missing-attribute -->
+                                                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                                <pre><a
+                                                        class="mzn-link mzn-{msg.type}"
+                                                        on:click={() =>
+                                                            dispatch('goto', {
+                                                                location:
+                                                                    entry.location,
+                                                            })}
+                                                        >{displayLocation(
+                                                            entry.location
+                                                        )}</a
+                                                    ></pre>
+                                                <br />
+                                            {/if}
+                                            {#if entry.isCompIter}
+                                                <pre>    with </pre>
+                                            {:else}
+                                                <pre>  in </pre>
+                                            {/if}
+                                            <pre>{entry.description}</pre>
+                                            <br />
+                                        {/each}
+                                    {:else if msg.location}
+                                        <!-- svelte-ignore a11y-missing-attribute -->
+                                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                        <pre><a
+                                                class="mzn-link mzn-{msg.type}"
+                                                on:click={() =>
+                                                    dispatch('goto', {
+                                                        location: msg.location,
+                                                    })}
+                                                >{displayLocation(
+                                                    msg.location
+                                                )}</a
+                                            >:</pre>
+                                        <br />
+                                    {/if}
+                                    {#if msg.includedFrom}
+                                        {#each msg.includedFrom as include}
+                                            <pre> (included from {include})</pre>
+                                            <br />
+                                        {/each}
+                                    {/if}
+                                    {#if msg.type === 'error'}
+                                        <pre>MiniZinc:</pre>
+                                    {:else}
+                                        <pre>Warning:</pre>
+                                    {/if}
+                                    <pre>{msg.what}: {msg.message}</pre>
+                                    {#if msg.cycle}
+                                        {#each msg.cycle as it}
+                                            <pre> {it}</pre>
+                                            <br />
+                                        {/each}
+                                    {/if}
+                                    <br />
+                                {/if}
                             {:else if msg.type === 'exit'}
                                 {#if msg.code}
                                     <pre
@@ -378,5 +484,13 @@
 
     .mzn-error {
         color: red;
+    }
+
+    .mzn-warning {
+        color: #d1d100;
+    }
+
+    .mzn-link {
+        text-decoration: underline;
     }
 </style>

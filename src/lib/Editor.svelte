@@ -1,6 +1,7 @@
 <script>
     import { EditorView } from '@codemirror/view';
-    import { onMount } from 'svelte';
+
+    import { onMount, tick } from 'svelte';
 
     export let state;
 
@@ -18,11 +19,27 @@
         view.setState(state);
     }
 
+    export function getView() {
+        if (view) {
+            return view;
+        }
+        return null;
+    }
+
     export function getState() {
         if (view) {
             return view.state;
         }
         return null;
+    }
+
+    export async function setCursor(pos) {
+        if (view) {
+            await tick();
+            view.dispatch({
+                selection: { anchor: pos },
+            });
+        }
     }
 
     export function focus() {

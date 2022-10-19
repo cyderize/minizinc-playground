@@ -11216,6 +11216,21 @@ if (typeof importScripts == 'function') {
                                 obj.location.filename =
                                     obj.location.filename.substring(10);
                             }
+                            if ('stack' in obj && Array.isArray(obj.stack)) {
+                                for (const s of obj.stack) {
+                                    if (
+                                        'location' in s &&
+                                        'filename' in s.location &&
+                                        s.location.filename.indexOf(
+                                            '/minizinc/'
+                                        ) === 0
+                                    ) {
+                                        // Strip prefix from filename
+                                        s.location.filename =
+                                            s.location.filename.substring(10);
+                                    }
+                                }
+                            }
                             postMessage(obj);
                         } catch (e) {
                             // Fall back to creating a stdout message
