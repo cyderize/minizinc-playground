@@ -11540,7 +11540,7 @@ if (typeof importScripts == 'function') {
                 };
             }
             solve(options, jsonOutput = true) {
-                const args = ['-i', '-s'];
+                const args = ['-i']; // Always use intermediate solutions
                 if (jsonOutput) {
                     args.push('--output-mode');
                     args.push('json');

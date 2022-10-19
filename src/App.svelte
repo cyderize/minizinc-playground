@@ -33,6 +33,7 @@
         },
     ];
     let currentIndex = 0;
+    let solverConfig;
 
     let autoClearOutput = false;
 
@@ -70,7 +71,11 @@
     let parameterModalDataFiles = [];
     let parameterModalParameters = {};
 
-    const options = { solver: 'gecode_presolver' };
+    const solvers = [
+        { name: 'Gecode', tag: 'gecode_presolver', stdFlags: ['-a', 'n'] },
+        { name: 'COIN-BC', tag: 'cbc', stdFlags: ['-i', '-p', '-s', '-v'] },
+    ];
+    let currentSolverIndex = 0;
 
     let showSolverConfig = false;
     function toggleSolverConfig() {
@@ -244,7 +249,11 @@
             );
         }
         try {
-            const { input } = await model.interface(options);
+            const { input } = await model.interface(
+                solverConfig.getCompilationConfiguration(
+                    solvers[currentSolverIndex].tag
+                )
+            );
             if (Object.keys(input).length > 0) {
                 const params = {};
                 for (const key in input) {
@@ -319,7 +328,12 @@
                 output: [],
             },
         ];
-        minizinc = model.solve(options, false);
+        minizinc = model.solve(
+            solverConfig.getSolvingConfiguration(
+                solvers[currentSolverIndex].tag
+            ),
+            false
+        );
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('solution', addOutput);
@@ -368,7 +382,11 @@
                 output: [],
             },
         ];
-        minizinc = model.compile(options);
+        minizinc = model.compile(
+            solverConfig.getCompilationConfiguration(
+                solvers[currentSolverIndex].tag
+            )
+        );
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('statistics', addOutput);
@@ -468,11 +486,12 @@
                             </div>
                             <div class="control is-expanded">
                                 <div class="select is-fullwidth">
-                                    <select>
-                                        <option value="gecode_presolver">
-                                            Gecode
-                                        </option>
-                                        <option value="cbc"> COIN-BC </option>
+                                    <select bind:value={currentSolverIndex}>
+                                        {#each solvers as solver, i}
+                                            <option value={i}>
+                                                {solver.name}
+                                            </option>
+                                        {/each}
                                     </select>
                                 </div>
                             </div>
@@ -544,11 +563,12 @@
                 </div>
             </SplitPanel>
         </div>
-        {#if showSolverConfig}
-            <div class="right">
-                <SolverConfig />
-            </div>
-        {/if}
+        <SolverConfig
+            active={showSolverConfig}
+            bind:this={solverConfig}
+            stdFlags={solvers[currentSolverIndex].stdFlags}
+            on:close={() => (showSolverConfig = false)}
+        />
     </div>
 </div>
 
@@ -621,14 +641,6 @@
     }
     .main-panel > .left {
         flex: 1 1 auto;
-    }
-    .main-panel > .right {
-        flex: 0 0 30%;
-        min-width: 300px;
-        max-width: 450px;
-        border-top: solid 1px hsl(0deg, 0%, 86%);
-        border-left: solid 1px hsl(0deg, 0%, 86%);
-        padding: 1rem;
     }
     .stack > .top {
         flex: 0 0 auto;
