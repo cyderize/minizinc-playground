@@ -3,7 +3,13 @@
     import SplitPanel from './lib/SplitPanel.svelte';
     import Tabs from './lib/Tabs.svelte';
     import Fa from 'svelte-fa/src/fa.svelte';
-    import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+    import {
+        faPlay,
+        faStop,
+        faCog,
+        faShareNodes,
+        faDownload,
+    } from '@fortawesome/free-solid-svg-icons';
     import Modal from './lib/Modal.svelte';
     import { EditorState } from '@codemirror/state';
     import { MiniZincEditorExtensions, JSONEditorExtensions } from './lang';
@@ -11,6 +17,7 @@
     import NewFileModal from './lib/NewFileModal.svelte';
     import ModelModal from './lib/ModelModal.svelte';
     import ParameterModal from './lib/ParameterModal.svelte';
+    import SolverConfig from './lib/SolverConfig.svelte';
 
     const playground = '% Use this editor as a MiniZinc scratch book\n';
 
@@ -62,6 +69,11 @@
     let parameterModalParameters = {};
 
     const options = { solver: 'gecode_presolver' };
+    
+    let showSolverConfig = false;
+    function toggleSolverConfig() {
+        showSolverConfig = !showSolverConfig;
+    }
 
     function selectTab(index) {
         if (editor) {
@@ -75,12 +87,9 @@
 
     function newFile(suffix) {
         let name = `Untitled${suffix}`;
-        if (files.find((f) => f.name === name)) {
-            let i = 2;
-            while (files.find((f) => f.name === `Untitled-${i}${suffix}`)) {
-                i++;
-            }
-            name = `Untitled-${i}${suffix}`;
+        let i = 2;
+        while (files.find((f) => f.name === name)) {
+            name = `Untitled-${i++}${suffix}`;
         }
         files = [
             ...files,
@@ -98,10 +107,43 @@
         newFileRequested = false;
     }
 
+    function openFiles(toOpen) {
+        let toAdd = [];
+        for (const file of toOpen) {
+            const dot = file.name.endsWith('.mzc.mzn')
+                ? file.name.length - 8
+                : file.name.lastIndexOf('.');
+            const stem = file.name
+                .substring(0, dot)
+                .replaceAll(/[\/\\\.]/g, '');
+            const suffix = file.name.substring(dot);
+            let name = `${stem}${suffix}`;
+            let i = 2;
+            while (files.find((f) => f.name === name)) {
+                name = `${stem}-${i++}${suffix}`;
+            }
+            toAdd.push({
+                name,
+                state: EditorState.create({
+                    doc: file.contents,
+                    extensions:
+                        suffix === '.json' || suffix === '.mpc'
+                            ? JSONEditorExtensions
+                            : MiniZincEditorExtensions,
+                }),
+            });
+        }
+        files = [...files, ...toAdd];
+        selectTab(files.length - 1);
+        newFileRequested = false;
+    }
+
     function rename(e) {
         const { index, name, suffix } = e.detail;
-        if (files.some((f, i) => i !== index && f === name + suffix)) {
-            return;
+        let dest = name;
+        let i = 2;
+        while (files.some((f) => f === dest + suffix)) {
+            dest = `${name}-${i++}`;
         }
         currentFile.state = editor.getState();
         files = [
@@ -121,6 +163,28 @@
             selectTab(files.length - 1);
         }
         deleteFileRequested = null;
+    }
+
+    function reorder(src, dest) {
+        let newFiles;
+        if (src < dest) {
+            newFiles = [
+                ...files.slice(0, src),
+                ...files.slice(src + 1, dest + 1),
+                files[src],
+                ...files.slice(dest + 1),
+            ];
+        } else {
+            newFiles = [
+                ...files.slice(0, dest),
+                files[src],
+                ...files.slice(dest, src),
+                ...files.slice(src + 1),
+            ];
+        }
+        const newIndex = newFiles.indexOf(currentFile);
+        files = newFiles;
+        currentIndex = newIndex;
     }
 
     let getModelResolve = null;
@@ -150,23 +214,32 @@
                 }
             }
         }
-        const modelFileName = modelFile.name.substring(
-            0,
-            modelFile.name.length - 4
-        );
 
         const model = new window.MiniZinc.Model();
-        model.toRun.push(modelFile.name); // Ensure this is first
-
+        const fileList = [modelFile.name];
+        if (addChecker) {
+            const modelFileName = modelFile.name.substring(
+                0,
+                modelFile.name.length - 4
+            );
+            const checker = files.find(
+                (f) =>
+                    f.name === `${modelFileName}.mzc` ||
+                    f.name === `${modelFileName}.mzc.mzn`
+            );
+            if (checker) {
+                fileList.push(checker.name);
+            }
+        }
+        if (modelFile !== currentFile) {
+            fileList.push(currentFile.name);
+        }
         for (const file of files) {
-            const use =
-                file === modelFile ||
-                file === currentFile ||
-                (addChecker
-                    ? file.name === `${modelFileName}.mzc` ||
-                      file.name === `${modelFileName}.mzc.mzn`
-                    : false);
-            model.addFile(file.name, file.state.doc.sliceString(0), use);
+            model.addFile(
+                file.name,
+                file.state.doc.sliceString(0),
+                fileList.indexOf(file.name) !== -1
+            );
         }
         try {
             const { input } = await model.interface(options);
@@ -207,8 +280,9 @@
                         parameterModalParameters = result.parameters;
                     } else {
                         for (const file of result.dataFiles) {
-                            if (model.toRun.indexOf(file) === -1) {
+                            if (fileList.indexOf(file) === -1) {
                                 model.toRun.push(file);
+                                fileList.push(file);
                             }
                         }
                         dataFileTab = true;
@@ -222,19 +296,21 @@
             // Ignore and just run
             console.error(e);
         }
-        return model;
+        return { model, fileList };
     }
 
     async function run() {
-        const model = await getModel(true);
-        if (!model) {
+        const mznModel = await getModel(true);
+        if (!mznModel) {
+            // Cancelled
             return;
         }
+        const { model, fileList } = mznModel;
         const startTime = Date.now();
         output = [
             ...output,
             {
-                files: [...model.toRun],
+                files: fileList,
                 output: [],
             },
         ];
@@ -268,16 +344,18 @@
     }
 
     async function compile() {
-        const model = await getModel(false);
-        if (!model) {
+        const mznModel = await getModel(true);
+        if (!mznModel) {
+            // Cancelled
             return;
         }
-        const name = model.toRun.find((f) => f.endsWith('.mzn'));
+        const { model, fileList } = mznModel;
+        const name = fileList[0];
         const startTime = Date.now();
         output = [
             ...output,
             {
-                files: [...model.toRun],
+                files: fileList,
                 isCompile: true,
                 output: [],
             },
@@ -331,78 +409,131 @@
 <div class="stack">
     <div class="top">
         <nav class="navbar">
-            <div class="navbar-menu">
+            <div class="navbar-menu is-active">
                 <div class="navbar-start">
                     <div class="navbar-item">
-                        <div class="buttons">
-                            {#if isRunning}
+                        <div class="field has-addons">
+                            <div class="control">
+                                {#if isRunning}
+                                    <button
+                                        class="button is-danger"
+                                        title="Cancel solving"
+                                        on:click={stop}
+                                    >
+                                        <span>Stop</span>
+                                        <span class="icon">
+                                            <Fa icon={faStop} />
+                                        </span>
+                                    </button>
+                                {:else}
+                                    <button
+                                        class="button is-primary"
+                                        title="Run the current file"
+                                        on:click={run}
+                                        disabled={!canRun}
+                                    >
+                                        <span>Run</span>
+                                        <span class="icon">
+                                            <Fa icon={faPlay} />
+                                        </span>
+                                    </button>
+                                {/if}
+                            </div>
+                            <div class="control">
                                 <button
-                                    class="button is-danger"
-                                    title="Cancel solving"
-                                    on:click={stop}
+                                    class="button"
+                                    title="Compile the current file and show the resultant FlatZinc"
+                                    on:click={compile}
+                                    disabled={isRunning || !canCompile}
                                 >
-                                    <span>Stop</span>
+                                    <span>Compile</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="navbar-item">
+                        <div class="field has-addons">
+                            <div class="control">
+                                <button class="button is-static">
+                                    Solver:
+                                </button>
+                            </div>
+                            <div class="control is-expanded">
+                                <div class="select is-fullwidth">
+                                    <select>
+                                        <option value="gecode_presolver">
+                                            Gecode
+                                        </option>
+                                        <option value="cbc"> COIN-BC </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="control">
+                                <button class="button is-primary" on:click={toggleSolverConfig}>
                                     <span class="icon">
-                                        <Fa icon={faStop} />
+                                        <Fa icon={faCog} />
                                     </span>
                                 </button>
-                            {:else}
-                                <button
-                                    class="button is-primary"
-                                    title="Run the current file"
-                                    on:click={run}
-                                    disabled={!canRun}
-                                >
-                                    <span>Run</span>
-                                    <span class="icon">
-                                        <Fa icon={faPlay} />
-                                    </span>
-                                </button>
-                            {/if}
-                            <button
-                                class="button"
-                                title="Compile the current file and show the resultant FlatZinc"
-                                on:click={compile}
-                                disabled={isRunning || !canCompile}
-                            >
-                                <span>Compile</span>
-                            </button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <div class="navbar-end">
                     <div class="navbar-item">
-                        <div class="buttons">
-                            <button class="button is-primary">Share</button>
-                            <button class="button">Download project</button>
+                        <div class="field has-addons">
+                            <div class="control">
+                                <button class="button is-primary" title="Share">
+                                    <span class="icon">
+                                        <Fa icon={faShareNodes} />
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="control">
+                                <button class="button" title="Download project">
+                                    <span class="icon">
+                                        <Fa icon={faDownload} />
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </nav>
     </div>
-    <div class="grow">
-        <SplitPanel direction="vertical" split={75}>
-            <div class="panel stack" slot="panelA">
-                <div class="top">
-                    <Tabs
-                        files={files.map((f) => f.name)}
-                        {currentIndex}
-                        on:selectTab={(e) => selectTab(e.detail.index)}
-                        on:newFile={() => (newFileRequested = true)}
-                        on:rename={rename}
-                        on:close={(e) => (deleteFileRequested = e.detail.index)}
-                    />
+    <div class="grow main-panel">
+        <div class="left">
+            <SplitPanel direction="vertical" split={75}>
+                <div class="panel stack" slot="panelA">
+                    <div class="top">
+                        <Tabs
+                            files={files.map((f) => f.name)}
+                            {currentIndex}
+                            on:selectTab={(e) => selectTab(e.detail.index)}
+                            on:reorder={(e) =>
+                                reorder(e.detail.src, e.detail.dest)}
+                            on:newFile={() => (newFileRequested = true)}
+                            on:rename={rename}
+                            on:close={(e) =>
+                                (deleteFileRequested = e.detail.index)}
+                        />
+                    </div>
+                    <div class="grow">
+                        <Editor {state} bind:this={editor} />
+                    </div>
                 </div>
-                <div class="grow">
-                    <Editor {state} bind:this={editor} />
+                <div class="panel" slot="panelB">
+                    <Output {output} />
                 </div>
+            </SplitPanel>
+        </div>
+        {#if showSolverConfig}
+            <div class="right">
+                <SolverConfig />
             </div>
-            <div class="panel" slot="panelB">
-                <Output {output} />
-            </div>
-        </SplitPanel>
+        {/if}
     </div>
 </div>
 
@@ -410,6 +541,7 @@
     <NewFileModal
         on:cancel={() => (newFileRequested = false)}
         on:new={(e) => newFile(e.detail.type)}
+        on:open={(e) => openFiles(e.detail.files)}
     />
 {/if}
 
@@ -464,6 +596,24 @@
     .stack > .grow {
         flex: 1 1 auto;
         overflow: hidden;
+    }
+    .main-panel {
+        display: flex;
+    }
+    .main-panel > * {
+        height: 100%;
+        overflow: hidden;
+    }
+    .main-panel > .left {
+        flex: 1 1 auto;
+    }
+    .main-panel > .right {
+        flex: 0 0 30%;
+        min-width: 300px;
+        max-width: 450px;
+        border-top: solid 1px hsl(0deg, 0%, 86%);
+        border-left: solid 1px hsl(0deg, 0%, 86%);
+        padding: 1rem;
     }
     .stack > .top {
         flex: 0 0 auto;

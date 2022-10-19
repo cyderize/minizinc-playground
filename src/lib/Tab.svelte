@@ -6,6 +6,7 @@
     export let active = false;
     export let name = 'Untitled';
     export let suffix = '.mzn';
+    export let draggable = false;
 
     const dispatch = createEventDispatcher();
     let isEditing = false;
@@ -26,10 +27,12 @@
         editInput.focus();
     }
 
-    function editNameKeyPress(event) {
+    function editNameKeyUp(event) {
         if (event.key === 'Enter') {
             event.preventDefault();
             finishEditName();
+        } else if (event.key === 'Escape') {
+            isEditing = false;
         }
     }
 
@@ -41,7 +44,14 @@
     }
 </script>
 
-<li class:is-active={active}>
+<li
+    class:is-active={active}
+    {draggable}
+    on:dragstart
+    on:dragover
+    on:drop
+    on:dragover
+>
     <!-- svelte-ignore a11y-missing-attribute -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <a
@@ -56,7 +66,7 @@
                 bind:this={editInput}
                 bind:value={editValue}
                 on:blur={finishEditName}
-                on:keypress={editNameKeyPress}
+                on:keyup={editNameKeyUp}
                 placeholder={name}
             />{suffix}
         {:else}

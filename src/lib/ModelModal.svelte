@@ -19,7 +19,7 @@
 </script>
 
 <Modal title="Select model to run" on:cancel={() => dispatch('cancel')}>
-    <div class="select">
+    <div class="select is-fullwidth">
         <select bind:value={selectedModel}>
             {#each modelFiles as modelFile}
                 <option value={modelFile}>{modelFile}</option>
@@ -33,10 +33,3 @@
         </button>
     </div>
 </Modal>
-
-<style>
-    .select,
-    select {
-        width: 100%;
-    }
-</style>

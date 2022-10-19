@@ -62,7 +62,7 @@
         </div>
     {/if}
     {#if dataTabActive}
-        <div class="select is-multiple">
+        <div class="select is-fullwidth is-multiple">
             <select multiple size="8" bind:value={selectedFiles}>
                 {#each dataFiles as dataFile}
                     <option value={dataFile}>{dataFile}</option>
@@ -96,9 +96,5 @@
         flex: 1 1 auto;
         width: auto;
         margin-left: 1rem;
-    }
-    .select,
-    select {
-        width: 100%;
     }
 </style>
