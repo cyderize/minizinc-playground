@@ -184,7 +184,14 @@
 
     function closeFile(index) {
         if (files.length === 1) {
-            files = [{ name: 'Untitled.mzn', state: EditorState.create() }];
+            files = [
+                {
+                    name: 'Untitled.mzn',
+                    state: EditorState.create({
+                        extensions: mznExtensions,
+                    }),
+                },
+            ];
         } else {
             files = [...files.slice(0, index), ...files.slice(index + 1)];
         }
