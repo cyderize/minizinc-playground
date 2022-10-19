@@ -11348,6 +11348,7 @@ if (typeof importScripts == 'function') {
                     filename = `_mzn_${this.unnamedCount++}.mzn`;
                 }
                 this.addFile(filename, model);
+                return filename;
             }
             addDznString(dzn) {
                 let filename = `_dzn_${this.unnamedCount++}.dzn`;
@@ -11355,6 +11356,7 @@ if (typeof importScripts == 'function') {
                     filename = `_dzn_${this.unnamedCount++}.dzn`;
                 }
                 this.addFile(filename, dzn);
+                return filename;
             }
             addJson(data) {
                 let filename = `_json_${this.unnamedCount++}.json`;
@@ -11362,6 +11364,7 @@ if (typeof importScripts == 'function') {
                     filename = `_json_${this.unnamedCount++}.json`;
                 }
                 this.addFile(filename, JSON.stringify(data));
+                return filename;
             }
             addFile(filename, contents, use = true) {
                 this.vfs[filename] = contents;
@@ -11414,6 +11417,7 @@ if (typeof importScripts == 'function') {
                                         runCount,
                                     });
                                 } else {
+                                    worker.terminate();
                                     workers.push({
                                         worker: new Worker(src),
                                         runCount: 0,
@@ -11448,6 +11452,7 @@ if (typeof importScripts == 'function') {
                                         runCount,
                                     });
                                 } else {
+                                    worker.terminate();
                                     workers.push({
                                         worker: new Worker(src),
                                         runCount: 0,
@@ -11564,6 +11569,7 @@ if (typeof importScripts == 'function') {
                     }
                     switch (e.data.type) {
                         case 'exit':
+                            worker.terminate();
                             exited = true;
                             callbacks = {};
                             break;

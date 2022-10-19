@@ -9,33 +9,44 @@
         faCog,
         faShareNodes,
         faDownload,
+        faClipboard,
     } from '@fortawesome/free-solid-svg-icons';
     import Modal from './lib/Modal.svelte';
     import { EditorState } from '@codemirror/state';
-    import { MiniZincEditorExtensions, JSONEditorExtensions } from './lang';
+    import {
+        MiniZincEditorExtensions,
+        JSONEditorExtensions,
+        ReadonlyTextExtensions,
+        DataZincEditorExtensions,
+    } from './lang';
     import Output from './lib/Output.svelte';
     import NewFileModal from './lib/NewFileModal.svelte';
     import ModelModal from './lib/ModelModal.svelte';
     import ParameterModal from './lib/ParameterModal.svelte';
     import SolverConfig from './lib/SolverConfig.svelte';
+    import { addErrors } from './lang/underline';
 
+    let settings = { autoClearOutput: false };
+    try {
+        const savedSettings = localStorage.getItem('mznPlayground');
+        if (savedSettings && savedSettings.length > 0) {
+            settings = JSON.parse(savedSettings);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+    const mznExtensions = MiniZincEditorExtensions((e) => {
+        checkCode(e.view);
+    });
     const playground = '% Use this editor as a MiniZinc scratch book\n';
 
     let editor;
-    let files = [
-        {
-            name: 'Playground.mzn',
-            state: EditorState.create({
-                extensions: MiniZincEditorExtensions,
-                doc: playground,
-                selection: { anchor: playground.length },
-            }),
-        },
-    ];
+    let files = [];
+
     let currentIndex = 0;
     let solverConfig;
 
-    let autoClearOutput = false;
+    let autoClearOutput = settings.autoClearOutput;
 
     let newFileRequested = false;
     let deleteFileRequested = null;
@@ -44,7 +55,7 @@
     let needsData = null;
     let dataFileTab = true;
 
-    $: state = currentFile.state;
+    $: state = currentFile ? currentFile.state : null;
     $: canRun = isModel || isData || isFzn;
     $: canCompile = isModel || isData;
 
@@ -52,13 +63,16 @@
     let minizinc = null;
     $: isRunning = minizinc !== null;
 
-    $: currentFile = files[currentIndex];
+    $: currentFile = currentIndex < files.length ? files[currentIndex] : null;
     $: isModel =
+        currentFile &&
         currentFile.name.endsWith('.mzn') &&
         !currentFile.name.endsWith('.mzc.mzn');
     $: isData =
-        currentFile.name.endsWith('.dzn') || currentFile.name.endsWith('.json');
-    $: isFzn = currentFile.name.endsWith('.fzn');
+        currentFile &&
+        (currentFile.name.endsWith('.dzn') ||
+            currentFile.name.endsWith('.json'));
+    $: isFzn = currentFile && currentFile.name.endsWith('.fzn');
 
     $: modelFiles = files
         .filter((f) => f.name.endsWith('.mzn') && !f.name.endsWith('.mzc.mzn'))
@@ -82,6 +96,37 @@
         showSolverConfig = !showSolverConfig;
     }
 
+    if (window.location.hash.startsWith('#project=')) {
+        try {
+            const json = decodeURIComponent(window.location.hash.substring(9));
+            const result = JSON.parse(json);
+            openFiles(result.files);
+            currentIndex = result.tab;
+            currentSolverIndex = result.solver;
+        } catch (e) {
+            console.error(e);
+        }
+    } else if (settings.lastProject) {
+        try {
+            openFiles(settings.lastProject.files);
+            currentIndex = settings.lastProject.tab;
+            currentSolverIndex = settings.lastProject.solver;
+        } catch (e) {
+            console.error(e);
+        }
+    } else {
+        files = [
+            {
+                name: 'Playground.mzn',
+                state: EditorState.create({
+                    extensions: mznExtensions,
+                    doc: playground,
+                    selection: { anchor: playground.length },
+                }),
+            },
+        ];
+    }
+
     function selectTab(index) {
         if (editor) {
             if (currentIndex < files.length) {
@@ -90,6 +135,19 @@
             currentIndex = index;
             editor.focus();
         }
+    }
+
+    function getExtensions(suffix) {
+        if (suffix === '.json' || suffix === '.mpc') {
+            return JSONEditorExtensions;
+        }
+        if (suffix === '.mzc') {
+            return ReadonlyTextExtensions;
+        }
+        if (suffix === '.dzn') {
+            return DataZincEditorExtensions;
+        }
+        return mznExtensions;
     }
 
     function newFile(suffix) {
@@ -103,10 +161,7 @@
             {
                 name,
                 state: EditorState.create({
-                    extensions:
-                        name.endsWith('.json') || name.endsWith('.mpc')
-                            ? JSONEditorExtensions
-                            : MiniZincEditorExtensions,
+                    extensions: getExtensions(suffix),
                 }),
             },
         ];
@@ -133,10 +188,7 @@
                 name,
                 state: EditorState.create({
                     doc: file.contents,
-                    extensions:
-                        suffix === '.json' || suffix === '.mpc'
-                            ? JSONEditorExtensions
-                            : MiniZincEditorExtensions,
+                    extensions: getExtensions(suffix),
                 }),
             });
         }
@@ -244,7 +296,7 @@
         for (const file of files) {
             model.addFile(
                 file.name,
-                file.state.doc.sliceString(0),
+                file.state.doc.toString(),
                 fileList.indexOf(file.name) !== -1
             );
         }
@@ -430,7 +482,88 @@
         output[output.length - 1].output.push(value);
         output = output; // Force update
     }
+
+    function projectAsJson() {
+        if (currentFile) {
+            currentFile.state = editor.getState();
+        }
+        return {
+            files: files.map((f) => ({
+                name: f.name,
+                contents: f.state.doc.toString(),
+            })),
+            tab: currentIndex,
+            solver: currentSolverIndex,
+        };
+    }
+
+    function beforeUnload() {
+        if (currentFile) {
+            currentFile.state = editor.getState();
+        }
+        const savedSettings = {
+            autoClearOutput,
+        };
+        const project = projectAsJson();
+        if (
+            project.files.some(
+                (f) => f.contents.trim().length > 0 && f.contents !== playground
+            )
+        ) {
+            // Save since we have some non-empty files
+            savedSettings.lastProject = project;
+        }
+        localStorage.setItem('mznPlayground', JSON.stringify(savedSettings));
+    }
+
+    let shareUrlInput;
+    let shareUrl = null;
+    let copiedShareUrl = false;
+    function getShareUrl() {
+        const project = projectAsJson();
+        const url = new URL(window.location.href);
+        url.hash = `#project=${encodeURIComponent(JSON.stringify(project))}`;
+        copiedShareUrl = false;
+        return url.toString();
+    }
+
+    function copyShareUrl() {
+        shareUrlInput.select();
+        shareUrlInput.setSelectionRange(0, shareUrl.length);
+        navigator.clipboard.writeText(shareUrl);
+        copiedShareUrl = true;
+    }
+
+    let prevText = null;
+    async function checkCode(view) {
+        try {
+            const text = view.state.doc.toString();
+            if (text === prevText) {
+                return;
+            }
+            prevText = text;
+            const model = new window.MiniZinc.Model();
+            for (const file of files) {
+                model.addFile(file.name, file.state.doc.toString(), false);
+            }
+            const name = model.addString(text);
+            const errors = await model.check(
+                solverConfig.getCompilationConfiguration(
+                    solvers[currentSolverIndex].tag
+                )
+            );
+            addErrors(
+                text,
+                errors.filter((e) => e.location.filename === name),
+                view
+            );
+        } catch (e) {
+            console.error(e);
+        }
+    }
 </script>
+
+<svelte:window on:beforeunload={beforeUnload} />
 
 <div class="stack">
     <div class="top">
@@ -514,7 +647,11 @@
                     <div class="navbar-item">
                         <div class="field has-addons">
                             <div class="control">
-                                <button class="button is-primary" title="Share">
+                                <button
+                                    class="button is-primary"
+                                    title="Share"
+                                    on:click={() => (shareUrl = getShareUrl())}
+                                >
                                     <span class="icon">
                                         <Fa icon={faShareNodes} />
                                     </span>
@@ -551,7 +688,9 @@
                         />
                     </div>
                     <div class="grow">
-                        <Editor {state} bind:this={editor} />
+                        {#if state}
+                            <Editor {state} bind:this={editor} />
+                        {/if}
                     </div>
                 </div>
                 <div class="panel" slot="panelB">
@@ -620,6 +759,41 @@
         on:accept={(e) => getModelResolve(e.detail)}
         on:cancel={() => getModelResolve(false)}
     />
+{/if}
+
+{#if shareUrl}
+    <Modal title="Share this project" on:cancel={() => (shareUrl = null)}>
+        <div class="field has-addons">
+            <p class="control is-expanded">
+                <input
+                    bind:this={shareUrlInput}
+                    class="input"
+                    type="text"
+                    value={shareUrl}
+                    on:click={() => shareUrlInput.select()}
+                    readonly
+                />
+            </p>
+            <p class="control">
+                <button
+                    class="button"
+                    class:is-primary={!copiedShareUrl}
+                    class:is-success={copiedShareUrl}
+                    on:click={copyShareUrl}
+                >
+                    <span class="icon"><Fa icon={faClipboard} /></span>
+                </button>
+            </p>
+        </div>
+        <div slot="footer">
+            <button
+                class="button is-primary"
+                on:click={() => (shareUrl = null)}
+            >
+                Done
+            </button>
+        </div>
+    </Modal>
 {/if}
 
 <style>
