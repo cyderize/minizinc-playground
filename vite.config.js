@@ -45,5 +45,6 @@ function lezer() {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+    base: process.env.BASE_PATH,
     plugins: [lezer(), svelte()],
 });

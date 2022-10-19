@@ -18,6 +18,8 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: npm run build
+        env:
+          BASE_PATH: minizinc-playground
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         if: ${{ github.ref == 'refs/heads/main' }}
