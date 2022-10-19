@@ -25,6 +25,8 @@
     import ParameterModal from './lib/ParameterModal.svelte';
     import SolverConfig from './lib/SolverConfig.svelte';
     import { addErrors, lineCharToPos } from './lang/underline';
+    import JSZip from 'jszip';
+    import FileSaver from 'file-saver';
 
     let settings = { autoClearOutput: false };
     try {
@@ -497,6 +499,40 @@
         };
     }
 
+    let generatingProject = false;
+    async function downloadProject() {
+        generatingProject = true;
+        try {
+            const project = projectAsJson();
+            const names = files.map((f) => f.name);
+            const solverId = {
+                gecode_presolver: 'org.gecode.gecode',
+                cbc: 'org.minizinc.mip.coin-bc',
+            }[solvers[project.solver].tag];
+            const zip = new JSZip();
+            for (const file of project.files) {
+                zip.file(file.name, file.contents);
+            }
+            zip.file(
+                'Project.mzp',
+                JSON.stringify({
+                    version: 105,
+                    projectFiles: names,
+                    openFiles: names,
+                    openTab: project.tab,
+                    selectedBuiltinConfigId: solverId,
+                    selectedBuiltinConfigVersion: 'default',
+                })
+            );
+            const blob = await zip.generateAsync({ type: 'blob' });
+            FileSaver.saveAs(blob, 'Project.zip');
+        } catch (e) {
+            console.error(e);
+        } finally {
+            generatingProject = false;
+        }
+    }
+
     function beforeUnload() {
         if (currentFile) {
             currentFile.state = editor.getState();
@@ -563,7 +599,7 @@
     }
 
     function gotoLocation(loc) {
-        const i = files.findIndex(f => f.name === loc.filename);
+        const i = files.findIndex((f) => f.name === loc.filename);
         if (i !== -1) {
             selectTab(i);
             const text = files[i].state.doc.toString();
@@ -669,7 +705,12 @@
                                 </button>
                             </div>
                             <div class="control">
-                                <button class="button" title="Download project">
+                                <button
+                                    class="button"
+                                    title="Download project"
+                                    on:click={() => downloadProject()}
+                                    disabled={generatingProject}
+                                >
                                     <span class="icon">
                                         <Fa icon={faDownload} />
                                     </span>
