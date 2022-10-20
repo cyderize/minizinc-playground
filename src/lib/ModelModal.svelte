@@ -10,7 +10,11 @@
     $: init(selectedModelFile);
     function init(selectedModelFile) {
         selectedModel =
-            selectedModelFile || (modelFiles.length > 0 ? modelFiles[0] : null);
+            selectedModelFile === null || selectedModelFile === undefined
+                ? modelFiles.length > 0
+                    ? modelFiles[0]
+                    : null
+                : selectedModelFile;
     }
 
     function accept() {
