@@ -41,13 +41,6 @@ const underlineField = StateField.define({
     provide: (f) => EditorView.decorations.from(f),
 });
 
-const underlineTheme = EditorView.baseTheme({
-    '.cm-mzn-underline-error': { textDecoration: 'underline red wavy 1px' },
-    '.cm-mzn-underline-warning': {
-        textDecoration: 'underline yellow wavy 1px',
-    },
-});
-
 /**
  * Convert a line/char to a position in the string
  * @param {number} line
@@ -93,14 +86,14 @@ export function addErrors(text, msgs, view) {
                 ) + 1,
             msg: `${msg.type === 'error' ? 'Error' : 'Warning'}: ${msg.what}: ${
                 msg.message
-            }}`,
+            }`,
             type: msg.type,
         })
     );
     if (!view.state.field(underlineField, false)) {
         effects.push(
             // @ts-ignore
-            StateEffect.appendConfig.of([underlineField, underlineTheme])
+            StateEffect.appendConfig.of([underlineField])
         );
     }
     view.dispatch({ effects: [clearUnderlines.of(null), ...effects] });
