@@ -471,6 +471,7 @@
             })),
             tab: currentIndex,
             solver: currentSolverIndex,
+            solverConfig: solverConfig.save(),
         };
     }
 
@@ -521,6 +522,9 @@
                 openFiles(result.files);
                 currentIndex = result.tab;
                 currentSolverIndex = result.solver;
+                if (result.solverConfig) {
+                    solverConfig.load(result.solverConfig);
+                }
                 window.location.hash = '';
             } catch (e) {
                 console.error(e);
@@ -531,6 +535,9 @@
                     openFiles(settings.lastProject.files);
                     currentIndex = settings.lastProject.tab;
                     currentSolverIndex = settings.lastProject.solver;
+                    if (settings.lastProject.solverConfig) {
+                        solverConfig.load(settings.lastProject.solverConfig);
+                    }
                 } catch (e) {
                     console.error(e);
                 }

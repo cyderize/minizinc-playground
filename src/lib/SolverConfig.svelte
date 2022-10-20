@@ -40,6 +40,8 @@
         enableTimeLimit = false;
         timeLimit = 1;
 
+        allSolutions = false;
+
         verboseCompilation = false;
         verboseSolving = false;
 
@@ -49,6 +51,42 @@
         outputTime = false;
 
         freeSearch = false;
+    }
+
+    export function load(settings) {
+        enableTimeLimit = settings.enableTimeLimit;
+        timeLimit = settings.timeLimit;
+
+        allSolutions = settings.allSolutions;
+
+        verboseCompilation = settings.verboseCompilation;
+        verboseSolving = settings.verboseSolving;
+
+        compilerStatistics = settings.compilerStatistics;
+        solvingStatistics = settings.solvingStatistics;
+
+        outputTime = settings.outputTime;
+
+        freeSearch = settings.freeSearch;
+    }
+
+    export function save() {
+        return {
+            enableTimeLimit,
+            timeLimit,
+
+            allSolutions,
+
+            verboseCompilation,
+            verboseSolving,
+
+            compilerStatistics,
+            solvingStatistics,
+
+            outputTime,
+
+            freeSearch,
+        };
     }
 
     export function getSolvingConfiguration(solver) {
