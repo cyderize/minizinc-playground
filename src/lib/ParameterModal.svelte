@@ -3,6 +3,7 @@
     import Modal from './Modal.svelte';
     const dispatch = createEventDispatcher();
 
+    export let active = false;
     export let parameters;
     export let dataFiles;
     export let selectedDataFiles = [];
@@ -44,7 +45,7 @@
     }
 </script>
 
-<Modal title="Model parameters" on:cancel={() => dispatch('cancel')}>
+<Modal {active} title="Model parameters" on:cancel={() => dispatch('cancel')}>
     {#if hasDataFiles}
         <div class="tabs">
             <ul>

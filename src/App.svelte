@@ -792,90 +792,88 @@
     </div>
 </div>
 
-{#if newFileRequested}
-    <NewFileModal
-        on:cancel={() => (newFileRequested = false)}
-        on:new={(e) => newFile(e.detail.type)}
-        on:open={(e) => openFiles(e.detail.files)}
-    />
-{/if}
+<NewFileModal
+    active={newFileRequested}
+    on:cancel={() => (newFileRequested = false)}
+    on:new={(e) => newFile(e.detail.type)}
+    on:open={(e) => openFiles(e.detail.files)}
+/>
 
-{#if deleteFileRequested !== null}
-    <Modal title="Delete file" on:cancel={() => (deleteFileRequested = null)}>
-        <p>
-            Are you sure you wish to delete <code
-                >{files[deleteFileRequested].name}</code
-            >?
+<Modal
+    active={deleteFileRequested !== null}
+    title="Delete file"
+    on:cancel={() => (deleteFileRequested = null)}
+>
+    <p>
+        Are you sure you wish to delete <code
+            >{files[deleteFileRequested].name}</code
+        >?
+    </p>
+    <p>This cannot be undone.</p>
+    <div slot="footer">
+        <button
+            class="button is-danger"
+            on:click={() => closeFile(deleteFileRequested)}
+        >
+            Delete
+        </button>
+        <button class="button" on:click={() => (deleteFileRequested = null)}
+            >Cancel</button
+        >
+    </div>
+</Modal>
+
+<ModelModal
+    active={needsModel}
+    {modelFiles}
+    selectedModelFile={modelModalModel}
+    on:accept={(e) => getModelResolve(e.detail)}
+    on:cancel={() => getModelResolve(false)}
+/>
+
+<ParameterModal
+    active={needsData}
+    {dataFiles}
+    selectedDataFiles={parameterModalDataFiles}
+    dataTab={dataFileTab}
+    parameters={parameterModalParameters}
+    on:accept={(e) => getModelResolve(e.detail)}
+    on:cancel={() => getModelResolve(false)}
+/>
+
+<Modal
+    active={shareUrl}
+    title="Share this project"
+    on:cancel={() => (shareUrl = null)}
+>
+    <div class="field has-addons">
+        <p class="control is-expanded">
+            <input
+                bind:this={shareUrlInput}
+                class="input"
+                type="text"
+                value={shareUrl}
+                on:click={() => shareUrlInput.select()}
+                readonly
+            />
         </p>
-        <p>This cannot be undone.</p>
-        <div slot="footer">
+        <p class="control">
             <button
-                class="button is-danger"
-                on:click={() => closeFile(deleteFileRequested)}
+                class="button"
+                class:is-primary={!copiedShareUrl}
+                class:is-success={copiedShareUrl}
+                on:click={copyShareUrl}
             >
-                Delete
+                <span class="icon"><Fa icon={faClipboard} /></span>
             </button>
-            <button class="button" on:click={() => (deleteFileRequested = null)}
-                >Cancel</button
-            >
-        </div>
-    </Modal>
-{/if}
-
-{#if needsModel}
-    <ModelModal
-        {modelFiles}
-        selectedModelFile={modelModalModel}
-        on:accept={(e) => getModelResolve(e.detail)}
-        on:cancel={() => getModelResolve(false)}
-    />
-{/if}
-
-{#if needsData}
-    <ParameterModal
-        {dataFiles}
-        selectedDataFiles={parameterModalDataFiles}
-        dataTab={dataFileTab}
-        parameters={parameterModalParameters}
-        on:accept={(e) => getModelResolve(e.detail)}
-        on:cancel={() => getModelResolve(false)}
-    />
-{/if}
-
-{#if shareUrl}
-    <Modal title="Share this project" on:cancel={() => (shareUrl = null)}>
-        <div class="field has-addons">
-            <p class="control is-expanded">
-                <input
-                    bind:this={shareUrlInput}
-                    class="input"
-                    type="text"
-                    value={shareUrl}
-                    on:click={() => shareUrlInput.select()}
-                    readonly
-                />
-            </p>
-            <p class="control">
-                <button
-                    class="button"
-                    class:is-primary={!copiedShareUrl}
-                    class:is-success={copiedShareUrl}
-                    on:click={copyShareUrl}
-                >
-                    <span class="icon"><Fa icon={faClipboard} /></span>
-                </button>
-            </p>
-        </div>
-        <div slot="footer">
-            <button
-                class="button is-primary"
-                on:click={() => (shareUrl = null)}
-            >
-                Done
-            </button>
-        </div>
-    </Modal>
-{/if}
+        </p>
+    </div>
+    <div slot="footer">
+        <button class="button is-primary" on:click={() => (shareUrl = null)}>
+            Done
+        </button>
+    </div>
+</Modal>
 
 <style>
     .stack {

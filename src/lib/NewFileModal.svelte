@@ -1,6 +1,8 @@
 <script>
     import { createEventDispatcher } from 'svelte';
     import Modal from './Modal.svelte';
+    export let active = false;
+
     const dispatch = createEventDispatcher();
     let fileInput;
     let files;
@@ -24,7 +26,7 @@
     }
 </script>
 
-<Modal title="Create new file" on:cancel={() => dispatch('cancel')}>
+<Modal {active} title="Create new file" on:cancel={() => dispatch('cancel')}>
     <aside class="menu">
         <p class="menu-label">Model</p>
         <ul class="menu-list">

@@ -5,6 +5,7 @@
 
     export let modelFiles;
     export let selectedModelFile = null;
+    export let active = false;
     let selectedModel = null;
 
     $: init(selectedModelFile);
@@ -22,7 +23,11 @@
     }
 </script>
 
-<Modal title="Select model to run" on:cancel={() => dispatch('cancel')}>
+<Modal
+    {active}
+    title="Select model to run"
+    on:cancel={() => dispatch('cancel')}
+>
     <div class="select is-fullwidth">
         <select bind:value={selectedModel}>
             {#each modelFiles as modelFile}

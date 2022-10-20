@@ -6,7 +6,6 @@
     export let active = false;
     export let name = 'Untitled';
     export let suffix = '.mzn';
-    export let draggable = false;
 
     const dispatch = createEventDispatcher();
     let isEditing = false;
@@ -44,54 +43,45 @@
     }
 </script>
 
-<li
-    class:is-active={active}
-    {draggable}
-    on:dragstart
-    on:dragover
-    on:drop
-    on:dragover
+<!-- svelte-ignore a11y-missing-attribute -->
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<a
+    class="filename-link"
+    class:active
+    on:click={() => {
+        if (!isEditing) dispatch('click');
+    }}
 >
-    <!-- svelte-ignore a11y-missing-attribute -->
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <a
-        class="filename-link"
-        on:click={() => {
-            if (!isEditing) dispatch('click');
-        }}
-    >
-        {#if isEditing}
-            <input
-                size={editValue.length || name.length}
-                bind:this={editInput}
-                bind:value={editValue}
-                on:blur={finishEditName}
-                on:keyup={editNameKeyUp}
-                placeholder={name}
-            />{suffix}
-        {:else}
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <span class="filename" on:click={editName}>{name}{suffix}</span>
-            {#if active}
-                <span class="close-tab" on:click={() => dispatch('close')}>
-                    <Fa icon={faXmark} />
-                </span>
-            {/if}
+    {#if isEditing}
+        <input
+            size={editValue.length || name.length}
+            bind:this={editInput}
+            bind:value={editValue}
+            on:blur={finishEditName}
+            on:keyup={editNameKeyUp}
+            placeholder={name}
+        />{suffix}
+    {:else}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <span class="filename" on:click={editName}>{name}{suffix}</span>
+        {#if active}
+            <span class="close-tab" on:click={() => dispatch('close')}>
+                <Fa icon={faXmark} />
+            </span>
         {/if}
-    </a>
-</li>
+    {/if}
+</a>
 
 <style>
-    .is-active .filename {
-        cursor: text;
-    }
-
-    .is-active .filename-link {
-        cursor: default;
-    }
-
     .close-tab {
         padding-left: 0.5rem;
         cursor: pointer;
+    }
+    .active .filename {
+        cursor: text;
+    }
+
+    .active.filename-link {
+        cursor: default;
     }
 </style>

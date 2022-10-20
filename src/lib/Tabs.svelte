@@ -3,6 +3,7 @@
     import Tab from './Tab.svelte';
     import Fa from 'svelte-fa/src/fa.svelte';
     import { faPlus } from '@fortawesome/free-solid-svg-icons';
+    import { flip } from 'svelte/animate';
 
     export let files = ['Playground.mzn'];
     export let currentIndex = 0;
@@ -54,19 +55,24 @@
 
 <div class="tabs is-boxed">
     <ul>
-        {#each files as file, i}
-            <Tab
-                name={names[i]}
-                suffix={suffixes[i]}
-                active={currentIndex === i}
-                on:click={() => onClick(i)}
-                on:rename={(e) => onRename(e, i)}
-                on:close={(e) => onClose(i)}
+        {#each files as file, i (file)}
+            <li
+                animate:flip={{ duration: 200 }}
+                class:is-active={currentIndex === i}
                 draggable={true}
                 on:dragstart={(e) => onDragStart(e, i)}
                 on:dragover={onDragOver}
                 on:drop={(e) => onDrop(e, i)}
-            />
+            >
+                <Tab
+                    name={names[i]}
+                    suffix={suffixes[i]}
+                    active={currentIndex === i}
+                    on:click={() => onClick(i)}
+                    on:rename={(e) => onRename(e, i)}
+                    on:close={(e) => onClose(i)}
+                />
+            </li>
         {/each}
 
         {#if canAddFiles}
@@ -87,6 +93,7 @@
     .tabs {
         margin-bottom: 0;
     }
+
     .add-icon {
         margin: 0 !important;
     }

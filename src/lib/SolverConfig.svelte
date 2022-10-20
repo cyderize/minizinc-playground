@@ -2,6 +2,7 @@
     import { faXmark } from '@fortawesome/free-solid-svg-icons';
     import { createEventDispatcher } from 'svelte';
     import Fa from 'svelte-fa/src/fa.svelte';
+    import { fly } from 'svelte/transition';
 
     const dispatch = createEventDispatcher();
 
@@ -131,7 +132,7 @@
 </script>
 
 {#if active}
-    <div class="config-window">
+    <div transition:fly={{ x: 100, duration: 200 }} class="config-window">
         <button
             class="button is-white is-small exit-button"
             on:click={() => dispatch('close')}
