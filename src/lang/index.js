@@ -47,8 +47,8 @@ export const MiniZincLanguage = LRLanguage.define({
             }),
             styleTags({
                 Keyword: t.keyword,
-                Identifier: t.variableName,
-                QuotedIdentifier: t.variableName,
+                'Identifier QuotedIdentifier': t.variableName,
+                'Call/Identifier Call/QuotedIdentifier GeneratorCall/Identifier GeneratorCall/QuotedIdentifier': t.name,
                 Absent: t.null,
                 Anonymous: t.null,
                 BooleanLiteral: t.bool,
@@ -99,6 +99,10 @@ const theme = createTheme({
         {
             tag: t.variableName,
             color: '#000000',
+        },
+        {
+            tag: t.name,
+            color: '#07a',
         },
         {
             tag: [t.keyword],
