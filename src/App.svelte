@@ -27,11 +27,11 @@
     import { addErrors, lineCharToPos } from './lang/underline';
     import { onMount } from 'svelte';
 
-    let settings = { autoClearOutput: false };
+    let settings = { autoClearOutput: false, sessions: {} };
     try {
         const savedSettings = localStorage.getItem('mznPlayground');
         if (savedSettings && savedSettings.length > 0) {
-            settings = JSON.parse(savedSettings);
+            settings = { ...settings, ...JSON.parse(savedSettings) };
         }
     } catch (e) {
         console.error(e);
@@ -46,8 +46,6 @@
 
     let currentIndex = 0;
     let solverConfig;
-
-    let autoClearOutput = settings.autoClearOutput;
 
     let newFileRequested = false;
     let deleteFileRequested = null;
@@ -347,7 +345,7 @@
         }
         const { model, fileList } = mznModel;
         const startTime = Date.now();
-        if (autoClearOutput) {
+        if (settings.autoClearOutput) {
             output = [];
         }
         output = [
@@ -400,7 +398,7 @@
         const { model, fileList } = mznModel;
         const name = fileList[0];
         const startTime = Date.now();
-        if (autoClearOutput) {
+        if (settings.autoClearOutput) {
             output = [];
         }
         output = [
@@ -511,6 +509,33 @@
         }
     }
 
+    let currentSession;
+    function newSession() {
+        const MAX_SESSIONS = 5;
+        if (Object.keys(settings.sessions).length >= MAX_SESSIONS) {
+            const sessions = Object.keys(settings.sessions).map((key) => ({
+                key,
+                value: settings.sessions[key],
+            }));
+            sessions.sort((a, b) => b.value.timestamp - a.value.timestamp);
+            settings.sessions = sessions
+                .slice(0, MAX_SESSIONS - 1)
+                .reduce((acc, x) => ({ ...acc, [x.key]: x.value }), {});
+        }
+        const genId = () =>
+            String.fromCharCode.apply(
+                null,
+                Array(6)
+                    .fill(0)
+                    .map(() => 65 + Math.floor(Math.random() * 58))
+            );
+        let id = genId();
+        while (id in settings.sessions) {
+            id = genId();
+        }
+        return id;
+    }
+
     function hashChange() {
         if (window.location.hash.startsWith('#project=')) {
             try {
@@ -525,35 +550,60 @@
                 if (result.solverConfig) {
                     solverConfig.load(result.solverConfig);
                 }
-                window.location.hash = '';
+                currentSession = newSession();
+                window.location.hash = `#session=${currentSession}`;
+                return;
             } catch (e) {
                 console.error(e);
             }
-        } else if (files.length === 0) {
-            if (settings.lastProject) {
-                try {
-                    openFiles(settings.lastProject.files);
-                    currentIndex = settings.lastProject.tab;
-                    currentSolverIndex = settings.lastProject.solver;
-                    if (settings.lastProject.solverConfig) {
-                        solverConfig.load(settings.lastProject.solverConfig);
-                    }
-                } catch (e) {
-                    console.error(e);
+        }
+
+        if (!window.location.hash.startsWith('#session=')) {
+            // Start new session
+            window.location.hash = `#session=${newSession()}`;
+            return;
+        }
+
+        const id = window.location.hash.substring(9);
+        if (
+            id !== currentSession &&
+            settings.sessions &&
+            settings.sessions[id]
+        ) {
+            if (files.length > 0) {
+                if (currentFile) {
+                    currentFile.state = editor.getState();
                 }
-            } else {
-                files = [
-                    {
-                        name: 'Playground.mzn',
-                        state: EditorState.create({
-                            extensions: mznExtensions,
-                            doc: playground,
-                            selection: { anchor: playground.length },
-                        }),
-                    },
-                ];
+                const project = projectAsJson();
+                settings.sessions[currentSession] = project;
+            }
+            try {
+                files = [];
+                openFiles(settings.sessions[id].files);
+                currentIndex = settings.sessions[id].tab;
+                currentSolverIndex = settings.sessions[id].solver;
+                if (settings.sessions[id].solverConfig) {
+                    solverConfig.load(settings.sessions[id].solverConfig);
+                }
+                currentSession = id;
+            } catch (e) {
+                console.error(e);
             }
         }
+
+        if (files.length === 0) {
+            files = [
+                {
+                    name: 'Playground.mzn',
+                    state: EditorState.create({
+                        extensions: mznExtensions,
+                        doc: playground,
+                        selection: { anchor: playground.length },
+                    }),
+                },
+            ];
+        }
+        currentSession = id;
     }
 
     onMount(() => hashChange());
@@ -562,19 +612,12 @@
         if (currentFile) {
             currentFile.state = editor.getState();
         }
-        const savedSettings = {
-            autoClearOutput,
-        };
         const project = projectAsJson();
-        if (
-            project.files.some(
-                (f) => f.contents.trim().length > 0 && f.contents !== playground
-            )
-        ) {
-            // Save since we have some non-empty files
-            savedSettings.lastProject = project;
-        }
-        localStorage.setItem('mznPlayground', JSON.stringify(savedSettings));
+        settings.sessions[currentSession] = {
+            ...project,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem('mznPlayground', JSON.stringify(settings));
     }
 
     let shareUrlInput;
@@ -778,7 +821,7 @@
                         {output}
                         on:clear={() => (output = [])}
                         on:goto={(e) => gotoLocation(e.detail.location)}
-                        bind:autoClearOutput
+                        bind:autoClearOutput={settings.autoClearOutput}
                     />
                 </div>
             </SplitPanel>
