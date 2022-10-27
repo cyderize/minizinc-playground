@@ -45,6 +45,14 @@ function lezer() {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+    build: {
+        lib: /[yY1]/.test(process.env.EMBEDDED_PLAYGROUND || '')
+            ? {
+                  entry: 'src/embed.js',
+                  name: 'MiniZincPlayground',
+              }
+            : undefined,
+    },
     base: process.env.BASE_PATH,
     plugins: [lezer(), svelte()],
 });

@@ -47,11 +47,54 @@
     }
 </script>
 
-<div bind:this={div} />
+<div class="mzn-editor" bind:this={div} />
 
 <style>
-    div {
+    .mzn-editor {
         height: 100%;
         overflow: auto;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-error), .mzn-editor :global(.cm-mzn-underline-warning) {
+        position: relative;
+        display: inline-block;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-error),
+    .mzn-editor :global(.cm-mzn-underline-error::before),
+    .mzn-editor :global(.cm-mzn-underline-error::after) {
+        border-color: red;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-warning),
+    .mzn-editor :global(.cm-mzn-underline-warning::before),
+    .mzn-editor :global(.cm-mzn-underline-warning::after) {
+        border-color: #d1d100;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-error::before),
+    .mzn-editor :global(.cm-mzn-underline-warning::before),
+    .mzn-editor :global(.cm-mzn-underline-error::after),
+    .mzn-editor :global(.cm-mzn-underline-warning::after) {
+        content: '';
+        border-bottom-width: 2px;
+        border-bottom-style: dotted;
+        position: absolute;
+        display: block;
+        pointer-events: none;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-error::before),
+    .mzn-editor :global(.cm-mzn-underline-warning::before) {
+        left: 2px;
+        right: 0;
+        bottom: 2px;
+    }
+
+    .mzn-editor :global(.cm-mzn-underline-error::after),
+    .mzn-editor :global(.cm-mzn-underline-warning::after) {
+        left: 0px;
+        right: 2px;
+        bottom: 0;
     }
 </style>

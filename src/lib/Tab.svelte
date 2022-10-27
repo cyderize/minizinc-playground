@@ -6,6 +6,7 @@
     export let active = false;
     export let name = 'Untitled';
     export let suffix = '.mzn';
+    export let readonly = false;
 
     const dispatch = createEventDispatcher();
     let isEditing = false;
@@ -17,7 +18,7 @@
     }
 
     async function editName() {
-        if (!active) {
+        if (!active || readonly) {
             return;
         }
         isEditing = true;
@@ -48,6 +49,7 @@
 <a
     class="filename-link"
     class:active
+    class:readonly
     on:click={() => {
         if (!isEditing) dispatch('click');
     }}
@@ -64,7 +66,7 @@
     {:else}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <span class="filename" on:click={editName}>{name}{suffix}</span>
-        {#if active}
+        {#if active && !readonly}
             <span class="close-tab" on:click={() => dispatch('close')}>
                 <Fa icon={faXmark} />
             </span>
@@ -77,7 +79,7 @@
         padding-left: 0.5rem;
         cursor: pointer;
     }
-    .active .filename {
+    .active:not(.readonly) .filename {
         cursor: text;
     }
 
