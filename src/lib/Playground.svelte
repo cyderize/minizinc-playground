@@ -26,14 +26,18 @@
     import ParameterModal from './ParameterModal.svelte';
     import SolverConfig from './SolverConfig.svelte';
     import { addErrors, lineCharToPos } from '../lang/underline';
-    import { onMount } from 'svelte';
+    import { onMount, tick } from 'svelte';
     import { EditorView } from 'codemirror';
+    import * as MiniZinc from 'minizinc';
+    import minizincWorker from 'minizinc/minizinc-worker.js?url';
+    import minizincWasm from 'minizinc/minizinc.wasm?url';
+    import minizincData from 'minizinc/minizinc.data?url';
 
     export let autoClearOutput = false;
     export let canEditTabs = true;
     export let compilationEnabled = true;
     export let project;
-    export let enabledSolvers = ['gecode_presolver', 'cbc'];
+    export let enabledSolvers = null;
     export let canEditSolverSettings = true;
     export let showShareButton = true;
     export let showDownloadButton = true;
@@ -41,21 +45,39 @@
     export let canToggleShowHidden = true;
     export let showHidden = false;
 
-    let ready = false;
+    let busyState = 1; // Wait for MiniZinc initialisation and mounting
+    let allSolvers = [];
+
+    (async function () {
+        MiniZinc.shutdown();
+        await MiniZinc.init({
+            workerURL: new URL(minizincWorker, window.location.href),
+            wasmURL: new URL(minizincWasm, window.location.href),
+            dataURL: new URL(minizincData, window.location.href),
+        });
+        allSolvers = await MiniZinc.solvers();
+        await tick();
+        busyState--;
+    })();
+
+    let isMounted = false;
     onMount(() => {
-        ready = true;
+        isMounted = true;
         loadProject(project);
     });
     $: loadProject(project);
 
     export function loadProject(project) {
-        if (!ready) {
+        if (!isMounted) {
             return;
         }
         files = [];
         openFiles(project.files);
         currentIndex = project.tab || 0;
-        currentSolverIndex = project.solver || 0;
+        currentSolverIndex =
+            project.solver === null || project.solver === undefined
+                ? -1
+                : project.solver;
         if (project.solverConfig) {
             solverConfig.load(project.solverConfig);
         }
@@ -83,12 +105,12 @@
     let dataFileTab = true;
 
     $: state = currentFile ? currentFile.state : null;
-    $: canRun = !isBusy && (isModel || isData || isFzn);
-    $: canCompile = isModel || isData;
+    $: canRun =
+        busyState === 0 && currentSolver && (isModel || isData || isFzn);
+    $: canCompile = busyState === 0 && currentSolver && (isModel || isData);
 
     let output = [];
     let minizinc = null;
-    let isBusy = false;
     $: isRunning = minizinc !== null;
 
     $: currentFile = currentIndex < files.length ? files[currentIndex] : null;
@@ -113,15 +135,29 @@
     let parameterModalDataFiles = [];
     let parameterModalParameters = {};
 
-    const allSolvers = [
-        { name: 'Gecode', tag: 'gecode_presolver', stdFlags: ['-a', 'n'] },
-        { name: 'COIN-BC', tag: 'cbc', stdFlags: ['-i', '-p', '-s', '-v'] },
-    ];
-    $: solvers = enabledSolvers.map((tag) =>
-        allSolvers.find((s) => s.tag === tag)
-    );
+    $: solvers = enabledSolvers
+        ? allSolvers.filter((s) => enabledSolvers.indexOf(s.id) !== -1)
+        : allSolvers;
+    let currentSolverIndex = -1;
 
-    let currentSolverIndex = 0;
+    $: enforceValidSolver(solvers, currentSolverIndex);
+    async function enforceValidSolver(_solvers, _currentSolverIndex) {
+        if (currentSolverIndex < 0 || currentSolverIndex >= solvers.length) {
+            const idx = solvers.findIndex(
+                (s) => s.extraInfo && s.extraInfo.isDefault
+            );
+            if (idx !== -1) {
+                await tick();
+                currentSolverIndex = idx;
+            }
+        }
+    }
+
+    $: currentSolver =
+        currentSolverIndex >= 0 && currentSolverIndex < solvers.length
+            ? solvers[currentSolverIndex]
+            : null;
+    $: currentStdFlags = currentSolver ? currentSolver.stdFlags : [];
 
     let showSolverConfig = false;
     function toggleSolverConfig() {
@@ -292,7 +328,7 @@
             }
         }
 
-        const model = new window.MiniZinc.Model();
+        const model = new MiniZinc.Model();
         const fileList = [modelFile.name];
         if (addChecker) {
             const modelFileName = modelFile.name.substring(
@@ -319,11 +355,11 @@
             );
         }
         try {
-            const { input } = await model.interface(
-                solverConfig.getCompilationConfiguration(
-                    solvers[currentSolverIndex].tag
-                )
-            );
+            const { input } = await model.interface({
+                options: solverConfig.getCompilationConfiguration(
+                    currentSolver.id
+                ),
+            });
             if (Object.keys(input).length > 0) {
                 const params = {};
                 for (const key in input) {
@@ -362,7 +398,7 @@
                     } else {
                         for (const file of result.dataFiles) {
                             if (fileList.indexOf(file) === -1) {
-                                model.toRun.push(file);
+                                model.addFile(file);
                                 fileList.push(file);
                             }
                         }
@@ -381,11 +417,11 @@
     }
 
     async function run() {
-        isBusy = true;
+        busyState++;
         const mznModel = await getModel(true);
         if (!mznModel) {
             // Cancelled
-            isBusy = false;
+            busyState--;
             return;
         }
         const { model, fileList } = mznModel;
@@ -400,13 +436,11 @@
                 output: [],
             },
         ];
-        minizinc = model.solve(
-            solverConfig.getSolvingConfiguration(
-                solvers[currentSolverIndex].tag
-            ),
-            false
-        );
-        isBusy = false;
+        minizinc = model.solve({
+            options: solverConfig.getSolvingConfiguration(currentSolver.id),
+            jsonOutput: false,
+        });
+        busyState--;
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('solution', addOutput);
@@ -436,11 +470,11 @@
     }
 
     async function compile() {
-        isBusy = true;
+        busyState++;
         const mznModel = await getModel(true);
         if (!mznModel) {
             // Cancelled
-            isBusy = false;
+            busyState--;
             return;
         }
         const { model, fileList } = mznModel;
@@ -457,12 +491,10 @@
                 output: [],
             },
         ];
-        minizinc = model.compile(
-            solverConfig.getCompilationConfiguration(
-                solvers[currentSolverIndex].tag
-            )
-        );
-        isBusy = false;
+        minizinc = model.compile({
+            options: solverConfig.getCompilationConfiguration(currentSolver.id),
+        });
+        busyState--;
         minizinc.on('error', addOutput);
         minizinc.on('warning', addOutput);
         minizinc.on('statistics', addOutput);
@@ -530,10 +562,10 @@
             const FileSaver = (await import('file-saver')).default;
             const project = getProject();
             const names = files.map((f) => f.name);
-            const solverId = {
-                gecode_presolver: 'org.gecode.gecode',
-                cbc: 'org.minizinc.mip.coin-bc',
-            }[solvers[project.solver].tag];
+            let solverId = currentSolver.id;
+            if (solverId === 'org.minizinc.gecode_presolver') {
+                solverId = 'org.gecode.gecode';
+            }
             const zip = new JSZip();
             for (const file of project.files) {
                 zip.file(file.name, file.contents);
@@ -578,7 +610,12 @@
 
     let prevText = null;
     async function checkCode(view) {
-        if (!currentFile || !currentFile.name.endsWith('.mzn')) {
+        if (
+            busyState !== 0 ||
+            !currentSolver ||
+            !currentFile ||
+            !currentFile.name.endsWith('.mzn')
+        ) {
             return;
         }
         try {
@@ -587,16 +624,20 @@
                 return;
             }
             prevText = text;
-            const model = new window.MiniZinc.Model();
+            const model = new MiniZinc.Model();
             for (const file of files) {
                 model.addFile(file.name, file.state.doc.toString(), false);
             }
             const name = model.addString(text);
-            const errors = await model.check(
-                solverConfig.getCompilationConfiguration(
-                    solvers[currentSolverIndex].tag
-                )
-            );
+            const errors = await model.check({
+                options: solverConfig.getCompilationConfiguration(
+                    currentSolver.id
+                ),
+            });
+            if (view.state.doc.toString() !== text) {
+                // Out of date
+                return;
+            }
             addErrors(
                 text,
                 errors.filter((e) => e.location.filename === name),
@@ -667,39 +708,44 @@
                                 {/if}
                             </div>
                         </div>
-                        <div class="navbar-item">
-                            <div class="field has-addons">
-                                <div class="control">
-                                    <button class="button is-static">
-                                        Solver:
-                                    </button>
-                                </div>
-                                <div class="control is-expanded">
-                                    <div class="select is-fullwidth">
-                                        <select bind:value={currentSolverIndex}>
-                                            {#each solvers as solver, i}
-                                                <option value={i}>
-                                                    {solver.name}
-                                                </option>
-                                            {/each}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {#if canEditSolverSettings}
+                        {#if solvers.length > 0}
+                            <div class="navbar-item">
+                                <div class="field has-addons">
                                     <div class="control">
-                                        <button
-                                            class="button is-primary"
-                                            on:click={toggleSolverConfig}
-                                        >
-                                            <span class="icon">
-                                                <Fa icon={faCog} />
-                                            </span>
+                                        <button class="button is-static">
+                                            Solver:
                                         </button>
                                     </div>
-                                {/if}
+                                    <div class="control is-expanded">
+                                        <div class="select is-fullwidth">
+                                            <select
+                                                bind:value={currentSolverIndex}
+                                            >
+                                                {#each solvers as solver, i}
+                                                    <option value={i}>
+                                                        {solver.name}
+                                                        {solver.version}
+                                                    </option>
+                                                {/each}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {#if canEditSolverSettings}
+                                        <div class="control">
+                                            <button
+                                                class="button is-primary"
+                                                on:click={toggleSolverConfig}
+                                            >
+                                                <span class="icon">
+                                                    <Fa icon={faCog} />
+                                                </span>
+                                            </button>
+                                        </div>
+                                    {/if}
+                                </div>
                             </div>
-                        </div>
+                        {/if}
                     </div>
 
                     <div class="navbar-end">
@@ -800,7 +846,7 @@
             <SolverConfig
                 active={showSolverConfig}
                 bind:this={solverConfig}
-                stdFlags={solvers[currentSolverIndex].stdFlags}
+                stdFlags={currentStdFlags}
                 on:close={() => (showSolverConfig = false)}
             />
         </div>
