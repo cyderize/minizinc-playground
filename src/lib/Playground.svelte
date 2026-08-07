@@ -38,6 +38,8 @@
     import * as MiniZincLatest from 'https://cdn.jsdelivr.net/npm/minizinc/dist/minizinc.mjs';
     import * as MiniZincEdge from 'https://cdn.jsdelivr.net/npm/minizinc@edge/dist/minizinc.mjs';
     import { browserDarkMode, screenMobile } from './mediaQueries';
+    import { isMoocFile } from './mooc.js';
+    import { formatMiniZincStatus } from './minizincOutput.js';
 
     /**
      * @typedef {Object} Props
@@ -65,6 +67,7 @@
      * @property {boolean} [hideOutputOnStartup]
      * @property {boolean} [autoFocus]
      * @property {boolean} [showCheckerOutput]
+     * @property {boolean} [interactionLocked]
      * @property {import('svelte').Snippet<[{ isMobile: boolean }]>} [navbarBeforeRunButtons]
      * @property {import('svelte').Snippet<[{ isMobile: boolean }]>} [navbarRunButtons]
      * @property {import('svelte').Snippet<[{ isMobile: boolean }]>} [navbarAfterRunButtons]
@@ -79,6 +82,7 @@
      * @property {(payload: { files: string[], isCompile?: boolean }) => void} [onrunFinished]
      * @property {(payload: { files: string[], error: { message: string }, isCompile?: boolean }) => void} [onrunError]
      * @property {(payload: { solvers: any[] }) => void} [onsolversChanged]
+     * @property {(payload: { busy: boolean }) => void} [onbusyChanged]
      */
 
     /** @type {Props} */
@@ -107,6 +111,7 @@
         hideOutputOnStartup = true,
         autoFocus = true,
         showCheckerOutput = true,
+        interactionLocked = false,
         navbarBeforeRunButtons,
         navbarRunButtons,
         navbarAfterRunButtons,
@@ -121,6 +126,7 @@
         onrunFinished,
         onrunError,
         onsolversChanged,
+        onbusyChanged,
     } = $props();
 
     let busyCount = $state(0);
@@ -225,6 +231,23 @@
         return minizincVersions[key].detail;
     }
 
+    /** Return the current solver without exposing mutable configuration. */
+    export function getCurrentSolver() {
+        if (!currentSolver) {
+            return null;
+        }
+        return {
+            id: currentSolver.id,
+            name: currentSolver.name,
+            version: currentSolver.version,
+        };
+    }
+
+    /** Return a current-editor snapshot suitable for submission. */
+    export function getProjectFiles() {
+        return getProject().files;
+    }
+
     function notifyProjectChanged() {
         if (currentSolver && solverConfig) {
             onprojectChanged?.({ project: getProject() });
@@ -279,6 +302,29 @@
 
     let output = $state([]);
     let minizinc = $state(null);
+
+    $effect(() => {
+        onbusyChanged?.({ busy: busyCount !== 0 || minizinc !== null });
+    });
+
+    let interactionLockApplied = null;
+    $effect(() => {
+        if (interactionLockApplied === interactionLocked) return;
+        interactionLockApplied = interactionLocked;
+        for (const file of files) {
+            enqueueEffect(
+                file,
+                interactionLocked || file.readOnly
+                    ? readOnlyEffect
+                    : editableEffect,
+            );
+        }
+        applyEffects(currentFile);
+    });
+
+    export function isBusy() {
+        return busyCount !== 0 || minizinc !== null;
+    }
 
     let parameterModalDataFiles = [];
     let parameterModalParameters = $state({});
@@ -364,6 +410,14 @@
     function openFiles(toOpen, focus = true, saveCurrentFile = true) {
         let toAdd = [];
         for (const file of toOpen) {
+            if (isMoocFile(file.name)) {
+                toAdd.push({
+                    ...file,
+                    hidden: true,
+                    state: EditorState.create({ doc: file.contents }),
+                });
+                continue;
+            }
             const dot = file.name.endsWith('.mzc.mzn')
                 ? file.name.length - 8
                 : file.name.lastIndexOf('.');
@@ -563,6 +617,7 @@
             fileList.push(currentFile.name);
         }
         for (const file of files) {
+            if (isMoocFile(file.name)) continue;
             model.addFile(
                 file.name,
                 file.state.doc.toString(),
@@ -650,6 +705,116 @@
         const { model, fileList } = mznModel;
         const options = solverConfig.getSolvingConfiguration(currentSolver.id);
         await runWith(model, fileList, options);
+    }
+
+    /**
+     * Run one MOOC solution assignment without changing the user's solver
+     * settings or depending on the rendered output.
+     * @param {{ model: string, data: string, timeout: number, checker?: string }} assignment
+     */
+    export async function runAssignment(assignment) {
+        if (!currentSolver) {
+            return {
+                output: '',
+                status: null,
+                checkerOutput: [],
+                error: 'No solver selected',
+            };
+        }
+        if (minizinc) {
+            return {
+                output: '',
+                status: null,
+                checkerOutput: [],
+                error: 'MiniZinc is already running',
+            };
+        }
+        if (currentFile && editor && !isLoadingProject) {
+            currentFile.state = editor.getState();
+        }
+        const modelFile = files.find((file) => file.name === assignment.model);
+        const dataFile = files.find((file) => file.name === assignment.data);
+        if (
+            !modelFile ||
+            !dataFile ||
+            isMoocFile(modelFile.name) ||
+            isMoocFile(dataFile.name)
+        ) {
+            return {
+                output: '',
+                status: null,
+                checkerOutput: [],
+                error: 'Assignment model or data file is unavailable',
+            };
+        }
+        const modelStem = modelFile.name.substring(
+            0,
+            modelFile.name.length - 4,
+        );
+        const checkerName =
+            assignment.checker ||
+            [`${modelStem}.mzc`, `${modelStem}.mzc.mzn`].find((name) =>
+                files.some((file) => file.name === name),
+            );
+        const checker = checkerName
+            ? files.find((file) => file.name === checkerName)
+            : null;
+        if (checkerName && !checker) {
+            return {
+                output: '',
+                status: null,
+                checkerOutput: [],
+                error: 'Assignment checker file is unavailable',
+            };
+        }
+
+        const fileList = [modelFile.name, dataFile.name];
+        if (checker) fileList.push(checker.name);
+        const model = new MiniZinc.Model();
+        for (const file of files) {
+            if (isMoocFile(file.name)) continue;
+            model.addFile(
+                file.name,
+                file.state.doc.toString(),
+                fileList.includes(file.name),
+            );
+        }
+        const options = {
+            ...solverConfig.getSolvingConfiguration(currentSolver.id),
+            'time-limit': assignment.timeout * 1000,
+            ...(checker ? { 'output-mode': 'checker' } : {}),
+        };
+        let output = '';
+        let status = null;
+        const checkerOutput = [];
+        let error = null;
+        busyCount++;
+        try {
+            minizinc = model.solve({ options, jsonOutput: false });
+            minizinc.on('solution', (value) => {
+                if (typeof value?.output?.dzn === 'string') {
+                    output += `${value.output.dzn}----------\n`;
+                }
+            });
+            minizinc.on('status', (value) => {
+                status = value.status;
+                output += `${formatMiniZincStatus(value.status)}\n`;
+            });
+            minizinc.on('checker', (value) => checkerOutput.push(value));
+            minizinc.on('error', (value) => {
+                error =
+                    typeof value?.message === 'string'
+                        ? value.message
+                        : String(value);
+            });
+            await minizinc;
+        } catch (e) {
+            error = e instanceof Error ? e.message : String(e);
+        } finally {
+            minizinc = null;
+            busyCount--;
+        }
+        return { output, status, checkerOutput, error };
     }
 
     /** @param {any} model @param {string[]} fileList @param {Record<string, any>} options */
@@ -785,6 +950,13 @@
         }
         addOutput({ type: 'cancel' });
         minizinc.cancel();
+    }
+
+    /** Cancel an active MOOC assignment run. */
+    export function cancelAssignmentRun() {
+        if (minizinc) {
+            minizinc.cancel();
+        }
     }
 
     let visQueue = null;
@@ -975,6 +1147,7 @@
             prevText = text;
             const model = new MiniZinc.Model();
             for (const file of files) {
+                if (isMoocFile(file.name)) continue;
                 model.addFile(file.name, file.state.doc.toString(), false);
             }
             const name = model.addString(text);
@@ -1066,6 +1239,7 @@
         }
         const model = new MiniZinc.Model();
         for (const file of files) {
+            if (isMoocFile(file.name)) continue;
             model.addFile(
                 file.name,
                 file.state.doc.toString(),
@@ -1137,7 +1311,7 @@
     let splitterShowPanel = $derived(
         !hideOutputOnStartup || hasRun ? 'all' : 'a',
     );
-    let isRunning = $derived(minizinc !== null);
+    let isRunning = $derived(minizinc !== null || interactionLocked);
     let modelFiles = $derived(
         files
             .filter(

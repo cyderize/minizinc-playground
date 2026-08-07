@@ -128,6 +128,30 @@ describe('embed client', () => {
         embed.destroy();
     });
 
+    test('sends submission credentials without exposing them in its result', async () => {
+        const { hostWindow, iframe } = createHost();
+        const embed = createEmbed(iframe, hostWindow);
+        ready(hostWindow);
+
+        const request = embed.setSubmissionCredentials({
+            submitterEmail: 'student@example.test',
+            secret: 'private-token',
+        });
+        const envelope = iframe.contentWindow.postMessage.mock.calls.at(-1)[0];
+        expect(envelope).toMatchObject({
+            type: 'set-submission-credentials',
+            payload: {
+                submitterEmail: 'student@example.test',
+                secret: 'private-token',
+            },
+        });
+        hostWindow.dispatch(
+            createEmbedEnvelope('response', {}, envelope.requestId),
+        );
+        await expect(request).resolves.toEqual({});
+        embed.destroy();
+    });
+
     test('ignores messages from another source or origin', async () => {
         const { hostWindow, iframe } = createHost();
         const onProjectChanged = vi.fn();

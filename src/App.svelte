@@ -1,6 +1,7 @@
 <script>
     import { onDestroy, onMount, tick } from 'svelte';
     import Playground from './lib/Playground.svelte';
+    import MoocSubmissionModal from './lib/MoocSubmissionModal.svelte';
     import RecentProjectsModal from './lib/RecentProjectsModal.svelte';
     import { loadFromUrl } from './lib/loadFromUrl';
     import Fa from 'svelte-fa';
@@ -13,6 +14,8 @@
         parseEmbedConfig,
     } from './lib/embedConfig';
     import { createEmbedProtocol } from './lib/embedProtocol';
+    import { parseMooc } from './lib/mooc.js';
+    import { createMoocSubmission } from './lib/moocSubmission.js';
 
     let playground = $state();
     const embedConfig = parseEmbedConfig(window.location.hash);
@@ -48,6 +51,97 @@
     let openRecent = $state(false);
     let solvers = $state([]);
     let embedProtocol = null;
+    let assignment = $state(null);
+    let assignmentContents = null;
+    let submissionModal = $state();
+    let submissionModalActive = $state(false);
+    let submissionRunning = $state(false);
+    let submissionProgress = $state(0);
+    let submissionStatus = $state('');
+    let submissionProjectFiles = $state([]);
+    let submissionSolver = $state(null);
+    let submissionController = null;
+    let submissionPromise = null;
+    let playgroundBusy = $state(false);
+
+    /** @param {Record<string, any>} snapshot */
+    function updateAssignment(snapshot) {
+        const contents = snapshot.files?.find(
+            (file) => file.name === '_mooc',
+        )?.contents;
+        if (contents === assignmentContents) return;
+        assignmentContents = contents || null;
+        submissionModalActive = false;
+        if (!contents) {
+            assignment = null;
+            return;
+        }
+        const parsed = parseMooc(contents, snapshot.files);
+        if (parsed.error) {
+            globalThis.alert?.('Failed to load _mooc file');
+            assignment = null;
+            return;
+        }
+        assignment = parsed.assignment;
+    }
+
+    function openSubmissionModal() {
+        if (!assignment || playgroundBusy || submissionRunning) return;
+        submissionProjectFiles = playground.getProjectFiles();
+        submissionSolver = playground.getCurrentSolver();
+        submissionProgress = 0;
+        submissionStatus = '';
+        submissionModalActive = true;
+    }
+
+    async function submitMooc(credentials) {
+        if (!assignment || submissionRunning) return;
+        submissionProjectFiles = playground.getProjectFiles();
+        submissionSolver = playground.getCurrentSolver();
+        submissionRunning = true;
+        submissionProgress = 0;
+        submissionStatus = 'Preparing submission…';
+        submissionController = createMoocSubmission({
+            assignment,
+            projectFiles: submissionProjectFiles,
+            getMiniZincVersion: () => playground.getMiniZincVersion(),
+            runAssignment: (item) => playground.runAssignment(item),
+            cancelAssignmentRun: () => playground.cancelAssignmentRun(),
+            onprogress: ({ progress, status }) => {
+                submissionProgress = progress;
+                submissionStatus = status;
+            },
+        });
+        submissionPromise = submissionController.submit(credentials);
+        const result = await submissionPromise;
+        submissionRunning = false;
+        submissionController = null;
+        submissionPromise = null;
+        submissionStatus = result.message;
+    }
+
+    async function abortSubmission() {
+        if (submissionController) await submissionController.abort();
+    }
+
+    /** @param {() => any} operation */
+    async function afterSubmission(operation) {
+        if (submissionRunning) {
+            await abortSubmission();
+            await submissionPromise;
+        }
+        return operation();
+    }
+
+    async function setSubmissionCredentials({ submitterEmail, secret }) {
+        if (!assignment) throw new Error('No valid MOOC assignment is loaded');
+        if (typeof submitterEmail !== 'string' || typeof secret !== 'string') {
+            throw new Error('Submission credentials must be strings');
+        }
+        await tick();
+        submissionModal?.setCredentials({ submitterEmail, secret });
+        return {};
+    }
     /** @param {any[]} solvers @param {any} $settings */
     function getRecentProjects(solvers, $settings) {
         if (embedded || !playground || !$settings) {
@@ -207,27 +301,36 @@
             hostWindow: window,
             operations: {
                 loadProject: async (nextProject) => {
-                    project = normaliseProject(nextProject);
-                    await tick();
-                    await playground.whenProjectLoaded();
-                    return { project: playground.getProject() };
+                    return afterSubmission(async () => {
+                        project = normaliseProject(nextProject);
+                        await tick();
+                        await playground.whenProjectLoaded();
+                        return { project: playground.getProject() };
+                    });
                 },
-                getProject: () => playground.getProject(),
-                run: () => playground.run(),
-                stop: () => playground.stop(),
-                compile: () => playground.compile(),
-                clearOutput: () => playground.clearOutput(),
-                setOptions: (options) => {
-                    if (
-                        options.project !== undefined ||
-                        options.url !== undefined
-                    ) {
-                        throw new Error(
-                            'set-options cannot change project or url',
-                        );
-                    }
-                    return updateEmbedOptions(options);
-                },
+                getProject: () =>
+                    afterSubmission(() => playground.getProject()),
+                run: () => afterSubmission(() => playground.run()),
+                stop: () => afterSubmission(() => playground.stop()),
+                compile: () => afterSubmission(() => playground.compile()),
+                clearOutput: () =>
+                    afterSubmission(() => playground.clearOutput()),
+                setSubmissionCredentials: (credentials) =>
+                    afterSubmission(() =>
+                        setSubmissionCredentials(credentials),
+                    ),
+                setOptions: (options) =>
+                    afterSubmission(() => {
+                        if (
+                            options.project !== undefined ||
+                            options.url !== undefined
+                        ) {
+                            throw new Error(
+                                'set-options cannot change project or url',
+                            );
+                        }
+                        return updateEmbedOptions(options);
+                    }),
             },
             getReadyPayload: () => ({
                 minizincVersion: playground.getMiniZincVersion(),
@@ -340,9 +443,11 @@
         showDownloadButton={embedOptions.showDownloadButton}
         showExternalPlaygroundButton={embedOptions.showExternalPlaygroundButton}
         showTabs={embedOptions.showTabs}
-        canEditTabs={embedOptions.canEditTabs}
+        canEditTabs={embedOptions.canEditTabs && !submissionRunning}
+        interactionLocked={submissionRunning}
         compilationEnabled={embedOptions.compilationEnabled}
-        canEditSolverSettings={embedOptions.canEditSolverSettings}
+        canEditSolverSettings={embedOptions.canEditSolverSettings &&
+            !submissionRunning}
         enabledSolvers={embedOptions.enabledSolvers}
         canSwitchOrientation={embedOptions.canSwitchOrientation}
         hideOutputOnStartup={embedOptions.hideOutputOnStartup}
@@ -359,12 +464,49 @@
             solvers = payload.solvers;
             notifyEmbed('solvers-changed', payload);
         }}
-        onprojectChanged={(payload) => notifyEmbed('project-changed', payload)}
+        onbusyChanged={({ busy }) => (playgroundBusy = busy)}
+        onprojectChanged={(payload) => {
+            updateAssignment(payload.project);
+            notifyEmbed('project-changed', payload);
+        }}
         onrunStarted={(payload) => notifyEmbed('run-started', payload)}
         onoutput={(payload) => notifyEmbed('minizinc', payload)}
         onrunFinished={(payload) => notifyEmbed('run-finished', payload)}
         onrunError={(payload) => notifyEmbed('run-error', payload)}
     >
+        {#snippet navbarAfterSolverSelector({ isMobile })}
+            {#if assignment}
+                {#if isMobile}
+                    <!-- svelte-ignore a11y_invalid_attribute -->
+                    <a
+                        class="navbar-item mobile-menu-item"
+                        class:is-disabled={playgroundBusy ||
+                            submissionRunning ||
+                            submissionModalActive}
+                        href="javascript:void(0);"
+                        onclick={openSubmissionModal}
+                    >
+                        Submit to {assignment.moocName}
+                    </a>
+                {:else}
+                    <div class="navbar-item">
+                        <div class="field">
+                            <div class="control">
+                                <button
+                                    class="button"
+                                    disabled={playgroundBusy ||
+                                        submissionRunning ||
+                                        submissionModalActive}
+                                    onclick={openSubmissionModal}
+                                >
+                                    Submit to {assignment.moocName}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                {/if}
+            {/if}
+        {/snippet}
         {#if !embedded}
             {#snippet navbarBeforeShareButtons({ isMobile })}
                 {#if isMobile}
@@ -403,6 +545,22 @@
                 oncancel={() => (openRecent = false)}
                 onaccept={({ project }) =>
                     openProject(project.key, $settings.sessions[project.key])}
+            />
+        {/if}
+        {#if assignment}
+            <MoocSubmissionModal
+                bind:this={submissionModal}
+                active={submissionModalActive}
+                {assignment}
+                solver={submissionSolver}
+                minizincVersion={playground?.getMiniZincVersion() || ''}
+                projectFiles={submissionProjectFiles}
+                running={submissionRunning}
+                progress={submissionProgress}
+                status={submissionStatus}
+                onrunandsubmit={submitMooc}
+                onabort={abortSubmission}
+                onclose={() => (submissionModalActive = false)}
             />
         {/if}
     </Playground>

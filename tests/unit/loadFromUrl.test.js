@@ -85,6 +85,119 @@ describe('loadFromUrl', () => {
         });
     });
 
+    test('retains a valid flattened _mooc descriptor as a hidden file', async () => {
+        const projectUrl = 'https://example.test/project.mzp';
+        const descriptor = JSON.stringify({
+            assignmentKey: 'key',
+            name: 'Assignment',
+            moocName: 'Course',
+            moocPasswordString: 'Token',
+            submissionURL: 'https://example.test/submit',
+            solutionAssignments: [
+                {
+                    id: 'solution',
+                    name: 'Solution',
+                    model: 'models/model.mzn',
+                    data: 'data/input.dzn',
+                    timeout: '60',
+                    ignored: true,
+                },
+            ],
+            modelAssignments: [],
+            history: { ignored: true },
+        });
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url) => {
+                if (url.href === projectUrl) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () =>
+                            Promise.resolve({
+                                projectFiles: [
+                                    '_mooc',
+                                    'models/model.mzn',
+                                    'data/input.dzn',
+                                ],
+                                openFiles: ['models/model.mzn'],
+                                openTab: 'models/model.mzn',
+                            }),
+                    });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    text: () =>
+                        Promise.resolve(
+                            url.pathname.endsWith('_mooc')
+                                ? descriptor
+                                : 'contents',
+                        ),
+                });
+            }),
+        );
+
+        const loaded = await loadFromUrl(projectUrl);
+        expect(loaded.files).toHaveLength(3);
+        expect(loaded.files[2].name).toBe('_mooc');
+        expect(loaded.files[2].hidden).toBe(true);
+        expect(JSON.parse(loaded.files[2].contents)).toEqual({
+            assignmentKey: 'key',
+            name: 'Assignment',
+            moocName: 'Course',
+            moocPasswordString: 'Token',
+            submissionURL: 'https://example.test/submit',
+            solutionAssignments: [
+                {
+                    id: 'solution',
+                    name: 'Solution',
+                    model: 'model.mzn',
+                    data: 'input.dzn',
+                    timeout: 60,
+                    required: false,
+                },
+            ],
+            modelAssignments: [],
+            submissionTerms: '',
+            sendMeta: false,
+        });
+    });
+
+    test('alerts and omits an invalid _mooc descriptor', async () => {
+        const projectUrl = 'https://example.test/project.mzp';
+        const alert = vi.fn();
+        vi.stubGlobal('alert', alert);
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url) =>
+                Promise.resolve(
+                    url.href === projectUrl
+                        ? {
+                              ok: true,
+                              json: () =>
+                                  Promise.resolve({
+                                      projectFiles: ['_mooc', 'model.mzn'],
+                                      openFiles: ['model.mzn'],
+                                      openTab: 'model.mzn',
+                                  }),
+                          }
+                        : {
+                              ok: true,
+                              text: () =>
+                                  Promise.resolve(
+                                      url.pathname.endsWith('_mooc')
+                                          ? '{ invalid json'
+                                          : 'solve satisfy;',
+                                  ),
+                          },
+                ),
+            ),
+        );
+
+        const loaded = await loadFromUrl(projectUrl);
+        expect(loaded.files.map((file) => file.name)).toEqual(['model.mzn']);
+        expect(alert).toHaveBeenCalledWith('Failed to load _mooc file');
+    });
+
     test('reports an HTTP error without reading the response body', async () => {
         const fetch = vi.fn().mockResolvedValue({
             ok: false,

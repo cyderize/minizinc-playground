@@ -6,6 +6,7 @@ const commandTypes = new Set([
     'compile',
     'clear-output',
     'set-options',
+    'set-submission-credentials',
 ]);
 
 /** @param {unknown} value */
@@ -101,6 +102,8 @@ export function createEmbedProtocol({
                 result = await operations.clearOutput();
             else if (type === 'set-options')
                 result = { options: await operations.setOptions(payload) };
+            else if (type === 'set-submission-credentials')
+                result = await operations.setSubmissionCredentials(payload);
             else result = await operations[type]();
             if (requestId) send('response', result ?? {}, requestId);
         } catch (error) {

@@ -177,6 +177,41 @@ describe('embed protocol', () => {
         );
     });
 
+    test('passes submission credentials without returning them', async () => {
+        const hostWindow = createWindow();
+        const parentWindow = { postMessage: vi.fn() };
+        const setSubmissionCredentials = vi.fn(() => ({}));
+        const protocol = createEmbedProtocol({
+            hostWindow,
+            parentWindow,
+            operations: { setSubmissionCredentials },
+        });
+        protocol.start();
+        protocol.announceReady();
+
+        hostWindow.dispatchMessage(
+            createEmbedEnvelope(
+                'set-submission-credentials',
+                {
+                    submitterEmail: 'student@example.test',
+                    secret: 'private-token',
+                },
+                'request-1',
+            ),
+            parentWindow,
+        );
+        await Promise.resolve();
+
+        expect(setSubmissionCredentials).toHaveBeenCalledWith({
+            submitterEmail: 'student@example.test',
+            secret: 'private-token',
+        });
+        expect(parentWindow.postMessage).toHaveBeenLastCalledWith(
+            createEmbedEnvelope('response', {}, 'request-1'),
+            '*',
+        );
+    });
+
     test('rejects invalid command payloads without calling operations', async () => {
         const hostWindow = createWindow();
         const parentWindow = { postMessage: vi.fn() };

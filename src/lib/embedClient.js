@@ -12,6 +12,7 @@ const commands = {
     compile: ['compile'],
     clearOutput: ['clear-output'],
     setOptions: ['set-options', undefined, 'options'],
+    setSubmissionCredentials: ['set-submission-credentials'],
 };
 
 const supportedEvents = new Set([
@@ -220,6 +221,8 @@ export default function minizincPlayground(iframe) {
         compile: () => request('compile', {}),
         clearOutput: () => request('clearOutput', {}),
         setOptions: (nextOptions) => request('setOptions', nextOptions),
+        setSubmissionCredentials: (credentials) =>
+            request('setSubmissionCredentials', credentials),
         destroy,
     };
 }

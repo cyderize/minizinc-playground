@@ -82,7 +82,9 @@ Each entry in `files` has the following fields:
 Only `name` and `contents` are emitted for an ordinary editable visible file.
 The optional flags are emitted only when active. A hidden file is still passed
 to MiniZinc and remains in the project; `hidden` controls the editor UI rather
-than file availability.
+than file availability. The extensionless `_mooc` descriptor is the exception:
+it is retained as a hidden project file for MOOC submission support, but is
+never passed to MiniZinc.
 
 `readOnlyLines` is applied in addition to `readOnly`. Its line numbers refer to
 the original contents when the project is loaded. The line-range implementation

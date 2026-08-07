@@ -3,6 +3,7 @@
     import Fa from 'svelte-fa';
     import { faEraser, faTrash } from '@fortawesome/free-solid-svg-icons';
     import ErrorOutput from './ErrorOutput.svelte';
+    import { formatMiniZincStatus } from './minizincOutput.js';
 
     /**
      * @typedef {Object} Props
@@ -125,16 +126,6 @@
     });
 
     $effect(() => update(output));
-
-    const statusMap = {
-        ALL_SOLUTIONS: '==========',
-        OPTIMAL_SOLUTION: '==========',
-        UNSATISFIABLE: '=====UNSATISFIABLE=====',
-        UNSAT_OR_UNBOUNDED: '=====UNSATorUNBOUNDED=====',
-        UNBOUNDED: '=====UNBOUNDED=====',
-        UNKNOWN: '=====UNKNOWN=====',
-        ERROR: '=====ERROR=====',
-    };
 
     /** @param {any[]} o */
     async function update(o) {
@@ -449,7 +440,7 @@
                                 <pre class="mzn-runtime">Stopped.</pre>
                                 <br />
                             {:else if msg.type === 'status'}
-                                <pre>{statusMap[msg.status]}</pre>
+                                <pre>{formatMiniZincStatus(msg.status)}</pre>
                                 <br />
                             {:else if msg.type === 'error' || msg.type === 'warning'}
                                 {#if (msg.type === 'error' && showErrors) || (msg.type === 'warning' && showWarnings)}
