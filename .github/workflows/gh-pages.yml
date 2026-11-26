@@ -124,3 +124,11 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - name: Wait before trying again
+        if: ${{ steps.deployment.outcome == 'failure' }}
+        run: sleep 60
+      - name: Retry deployment after delay
+        id: retry
+        if: ${{ steps.deployment.outcome == 'failure' }}
+        uses: actions/deploy-pages@v5
